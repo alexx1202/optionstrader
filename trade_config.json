@@ -2,7 +2,7 @@
   "symbol": "BTC-07JUN25-104000-P-USDT",
   "side": "Buy",
   "quantity": 0.01,
-  "limit_price": 223,
+  "limit_price": null,
   "api_key": "4LsBsDgCxjO02MQcSY",
   "api_secret": "M40Sgh3yQKMywQMFXzR6sZmd6b7vhLeiiQvI"
 }
