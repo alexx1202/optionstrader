@@ -1,0 +1,14 @@
+2025-06-07 00:50:09,939 INFO Starting 1.py; logs to C:\Users\User\OneDrive\Documents\CRYPTO\PYTHON\CRYPTO\optionstrader\1.log, output to C:\Users\User\OneDrive\Documents\CRYPTO\PYTHON\CRYPTO\optionstrader\1_output.txt
+2025-06-07 00:50:10,315 ERROR Fatal:
+Traceback (most recent call last):
+  File "C:\Users\User\OneDrive\Documents\CRYPTO\PYTHON\CRYPTO\optionstrader\optionstrader.py", line 194, in main
+    trades, trade_log = trader.place_and_log(symbol, side, qty, entry_price, "GTC")
+                        ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\OneDrive\Documents\CRYPTO\PYTHON\CRYPTO\optionstrader\optionstrader.py", line 153, in place_and_log
+    result = self.place_order(symbol, side, qty, entry_price, tif, False)
+  File "C:\Users\User\OneDrive\Documents\CRYPTO\PYTHON\CRYPTO\optionstrader\optionstrader.py", line 141, in place_order
+    resp = self._send_request("POST","/v5/order/create",body)
+  File "C:\Users\User\OneDrive\Documents\CRYPTO\PYTHON\CRYPTO\optionstrader\optionstrader.py", line 121, in _send_request
+    raise ApiException(f"API Error {data['retCode']}: {data.get('retMsg')}")
+ApiException: API Error 10001:  does not exist.
+

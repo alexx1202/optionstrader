@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""
+1.py - Combined script to place an options trade via Bybit API and immediately fetch Greek exposures.
+Reads a single JSON config (symbol, side, quantity, optional limit_price), places entry and exit orders,
+logs trade details, retrieves per-option Greeks (delta, gamma, vega, theta), and writes a comprehensive
+output file with timestamps, balance, trade orders, ticker data, Greeks table, and trade executions.
+Separate log files are maintained for general run and trade-specific logs.
+"""
+
+import argparse
+import json
+import time
+import requests
+import hmac
+import hashlib
+import uuid
+from datetime import datetime
+from urllib.parse import urlencode
+import logging
+import os
+import sys
+import traceback
+
+# === Configuration ===
+API_KEY = "4LsBsDgCxjO02MQcSY"
+API_SECRET = "M40Sgh3yQKMywQMFXzR6sZmd6b7vhLeiiQvI"
+BASE_URL = "https://api-demo.bybit.com"
+RECV_WINDOW = "5000"
+SUB_ACCOUNT_NAME = ""
+MIN_BALANCE_THRESHOLD = 10.0
+
+# === File setup ===
+script_dir = os.path.dirname(os.path.abspath(__file__))
+log_file = os.path.join(script_dir, '1.log')
+output_file = os.path.join(script_dir, '1_output.txt')
+
+# === Logging configuration ===
+logger = logging.getLogger('main')
+logger.setLevel(logging.DEBUG)
+fh = logging.FileHandler(log_file, mode='w')
+ch = logging.StreamHandler(sys.stdout)
+fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+fh.setFormatter(fmt)
+ch.setFormatter(fmt)
+logger.addHandler(fh)
+logger.addHandler(ch)
+logger.info("Starting 1.py; logs to %s, output to %s", log_file, output_file)
+
+def print_and_write(lines):
+    """Print to console and write to output file."""
+    with open(output_file, 'w') as out:
+        for line in lines:
+            print(line)
+            out.write(line + "\n")
+
+def load_trade_config(path):
+    """Load and validate trade configuration from a JSON file."""
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Trade config file not found: {path}")
+    with open(path) as f:
+        cfg = json.load(f)
+    for field in ("symbol", "side", "quantity"):
+        if field not in cfg or cfg[field] in (None, ""):
+            raise ValueError(f"Missing required field in config: {field}")
+    return cfg
+
+# === Greek fetching via public market endpoint ===
+def fetch_option_ticker(symbol):
+    base = "https://api.bybit.com"
+    endpoint = "/v5/market/tickers"
+    params = {"category": "option", "symbol": symbol}
+    qs = urlencode(params)
+    url = f"{base}{endpoint}?{qs}"
+    logger.debug("Fetching ticker: %s", url)
+    resp = requests.get(url, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    logger.debug("Ticker response: %s", data)
+    if data.get("retCode") != 0:
+        raise RuntimeError(f"API Error {data['retCode']}: {data.get('retMsg')}")
+    lst = data.get("result", {}).get("list", [])
+    if not lst:
+        raise RuntimeError(f"No ticker data for symbol: {symbol}")
+    return lst[0]
+
+# === Options trading ===
+class ApiException(Exception): pass
+
+class BybitOptionsTrader:
+    def __init__(self, api_key, api_secret, base_url):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.base_url = base_url
+
+    def _generate_signature(self, timestamp, body_or_query):
+        payload = f"{timestamp}{self.api_key}{RECV_WINDOW}{body_or_query}"
+        return hmac.new(self.api_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+    def _send_request(self, method, path, body=None, query=""):
+        url = f"{self.base_url}{path}"
+        if query:
+            url += "?" + query
+        ts = str(int(time.time() * 1000))
+        body_str = json.dumps(body, separators=(',', ':')) if body else ''
+        to_sign = query if method=='GET' else body_str
+        sig = self._generate_signature(ts, to_sign)
+        headers = {
+            "Content-Type":"application/json",
+            "X-BAPI-API-KEY":self.api_key,
+            "X-BAPI-SIGN":sig,
+            "X-BAPI-TIMESTAMP":ts,
+            "X-BAPI-RECV-WINDOW":RECV_WINDOW,
+            "X-BAPI-SIGN-TYPE":"2"
+        }
+        if SUB_ACCOUNT_NAME:
+            headers["X-BAPI-SUB-ACCOUNT-NAME"] = SUB_ACCOUNT_NAME
+        resp = requests.request(method, url, headers=headers, data=body_str, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("retCode") != 0:
+            raise ApiException(f"API Error {data['retCode']}: {data.get('retMsg')}")
+        return data
+
+    def get_wallet_balance(self, coin="USDT"):
+        data = self._send_request("GET","/v5/account/wallet-balance","", f"accountType=UNIFIED")
+        for entry in data.get("result",{}).get("list",[]):
+            for c in entry.get("coin",[]):
+                if c["coin"]==coin:
+                    return float(c.get("walletBalance",0))
+        return 0.0
+
+    def place_order(self, symbol, side, qty, price=None, tif="GTC", is_exit=False):
+        body = {"category":"option","symbol":symbol,"side":side,
+                "orderType":"Limit" if price else "Market",
+                "qty":str(qty),"timeInForce":tif,
+                "orderLinkId":uuid.uuid4().hex}
+        if price:
+            body["price"] = str(price)
+        if is_exit:
+            body["reduceOnly"] = True
+        resp = self._send_request("POST","/v5/order/create",body)
+        logger.info(f"{'Exit' if is_exit else 'Entry'} order placed: {resp.get('result',{})}")
+        return resp.get("result",{})
+
+    def get_trade_history(self, symbol, order_id, limit=20):
+        q = f"category=option&symbol={symbol}&limit={limit}"
+        data = self._send_request("GET","/v5/execution/list","",q)
+        trades = data.get("result",{}).get("list",[])
+        return [t for t in trades if t.get("orderId")==order_id]
+
+    def place_and_log(self, symbol, side, qty, entry_price, tif):
+        # Place entry
+        result = self.place_order(symbol, side, qty, entry_price, tif, False)
+        oid = result.get("orderId")
+        time.sleep(2)
+        trades = self.get_trade_history(symbol, oid)
+        # Log trades to file
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        trade_log = os.path.join(script_dir, f"option_trade_log_{ts}.log")
+        with open(trade_log,'w') as f:
+            for t in trades:
+                f.write(json.dumps(t,indent=2)+"\n")
+        logger.info(f"Trade log saved to {trade_log}")
+        # Place exit
+        if not entry_price:
+            entry = next((t for t in trades if t['side'].lower()==side.lower()),None)
+            if not entry:
+                raise RuntimeError("No entry trade to infer price")
+            entry_price = float(entry['execPrice'])
+        # Calculate target: e.g. 3x entry_price
+        target = entry_price * 3
+        exit_side = "Sell" if side.lower()=="buy" else "Buy"
+        self.place_order(symbol, exit_side, qty, target, tif, True)
+        return trades, trade_log
+
+def main():
+    parser = argparse.ArgumentParser(description="Execute trade and fetch Greeks.")
+    parser.add_argument("order_file", help="Path to JSON config.")
+    args = parser.parse_args()
+    try:
+        ts = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        cfg = load_trade_config(args.order_file)
+        symbol, side, qty = cfg["symbol"], cfg["side"], cfg["quantity"]
+        entry_price = cfg.get("limit_price")
+        trader = BybitOptionsTrader(API_KEY, API_SECRET, BASE_URL)
+        balance = trader.get_wallet_balance()
+        # Prepare output
+        lines = [f"Timestamp: {ts}", f"Balance: {balance:.4f} USDT"]
+        if balance < MIN_BALANCE_THRESHOLD:
+            lines.append("⚠️ Insufficient balance => abort")
+            print_and_write(lines)
+            sys.exit(1)
+        lines.append(f"Placing {side} {qty} {symbol} @ {'Market' if not entry_price else entry_price}")
+        trades, trade_log = trader.place_and_log(symbol, side, qty, entry_price, "GTC")
+        lines.append(f"Trade log: {trade_log}")
+        # Fetch ticker and Greeks
+        tick = fetch_option_ticker(symbol)
+        lines.append("\nTicker Data:")
+        for k,v in sorted(tick.items()):
+            lines.append(f"  {k}: {v}")
+        # Greeks table
+        greeks = {k: float(tick[k]) for k in ('delta','gamma','vega','theta') if k in tick}
+        mult = 1 if side.lower()=='buy' else -1
+        headers = ['Greek','Per-Contract','Qty','Exposure']
+        rows=[]
+        for name,per in greeks.items():
+            exp = per*qty*mult
+            rows.append([name.capitalize(),f"{per:.8f}",str(qty),f"{exp:.8f}"])
+        # format table
+        cols = list(zip(headers,*rows))
+        widths=[max(len(str(c)) for c in col) for col in cols]
+        lines.append("\nGreek Exposures:")
+        lines.append("  ".join(h.ljust(w) for h,w in zip(headers,widths)))
+        lines.append("-"*sum(widths)+"--")
+        for r in rows:
+            lines.append("  ".join(c.ljust(w) for c,w in zip(r,widths)))
+        print_and_write(lines)
+    except Exception:
+        tb=traceback.format_exc()
+        logger.error("Fatal:\n%s",tb)
+        print(tb)
+        sys.exit(1)
+
+if __name__=='__main__':
+    main()
