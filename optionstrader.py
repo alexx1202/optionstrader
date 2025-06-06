@@ -85,6 +85,8 @@ def load_trade_config(path):
         raise FileNotFoundError(f"Trade config file not found: {path}")
     with open(candidate, encoding='utf-8') as f:
         cfg = json.load(f)
+    cfg.setdefault("auto_trade", False)
+    cfg.setdefault("risk_usd", 0)
     for field in ("symbol", "side", "quantity"):
         if field not in cfg or cfg[field] in (None, ""):
             raise ValueError(f"Missing required field in config: {field}")
