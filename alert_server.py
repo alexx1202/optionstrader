@@ -11,7 +11,7 @@ def webhook():
         return jsonify({'message': 'auto trade disabled'}), 200
     data = request.get_json(silent=True) or {}
     side = data.get('side', cfg.get('side', 'Buy'))
-    symbol = cfg['symbol']
+    symbol = data.get('symbol', cfg['symbol'])
     risk_usd = float(cfg.get('risk_usd', 0))
     qty = cfg['quantity']
     price = 0.0
@@ -24,7 +24,7 @@ def webhook():
         qty = optionstrader.compute_order_qty(risk_usd, price)
     key, secret = optionstrader.get_api_credentials(cfg)
     trader = optionstrader.BybitOptionsTrader(key, secret, optionstrader.BASE_URL)
-    trader.place_order(symbol, side, qty)
+    trader.place_and_log(symbol, side, qty, None, 'GTC')
     return jsonify({'message': 'order sent', 'qty': qty, 'symbol': symbol}), 200
 
 if __name__ == '__main__':

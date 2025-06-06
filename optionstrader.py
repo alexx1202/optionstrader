@@ -151,6 +151,13 @@ def compute_order_qty(risk_usd, price, min_qty=MIN_ORDER_QTY):
     return round(qty, 2)
 
 
+        if len(p) > 1:
+            try:
+                return datetime.strptime(p[1], "%d%b%y")
+            except ValueError:
+                return datetime.max
+        return datetime.max
+
 def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
     """Return the option symbol from the earliest expiry whose mark price is closest to risk/qty."""
     if not risk_usd or not qty:
