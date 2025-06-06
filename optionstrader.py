@@ -124,7 +124,12 @@ def fetch_option_instruments(base_coin="BTC", expiry=None, option_type=None, bas
     if expiry:
         params["expDate"] = expiry
     if option_type:
-        params["optionType"] = option_type
+        opt = option_type
+        if opt.upper() in ("P", "PUT"):
+            opt = "Put"
+        elif opt.upper() in ("C", "CALL"):
+            opt = "Call"
+        params["optionType"] = opt
     qs = urlencode(params)
     url = f"{base_url}{endpoint}?{qs}"
     logger.debug("Fetching instruments: %s", url)
@@ -138,6 +143,16 @@ def fetch_option_instruments(base_coin="BTC", expiry=None, option_type=None, bas
 
 MIN_ORDER_QTY = 0.01
 
+def _parse_expiry(token):
+    """Return datetime for an expiry token like '7JUN25' or '07JUN25'."""
+    tok = token.upper()
+    if len(tok) == 6:  # single-digit day
+        tok = '0' + tok
+    try:
+        return datetime.strptime(tok, "%d%b%y")
+    except ValueError:
+        return None
+
 def compute_order_qty(risk_usd, price, min_qty=MIN_ORDER_QTY):
     """Return the order quantity rounded to the exchange increment."""
     if not risk_usd or not price:
@@ -149,7 +164,6 @@ def compute_order_qty(risk_usd, price, min_qty=MIN_ORDER_QTY):
     steps = round(qty / min_qty)
     qty = steps * min_qty
     return round(qty, 2)
-
 
 def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
     """Return the option symbol from the earliest expiry whose mark price is closest to risk/qty."""
@@ -166,10 +180,9 @@ def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
     def expiry_from_symbol(sym):
         p = sym.split('-')
         if len(p) > 1:
-            try:
-                return datetime.strptime(p[1], "%d%b%y")
-            except ValueError:
-                return datetime.max
+            dt = _parse_expiry(p[1])
+            if dt:
+                return dt
         return datetime.max
 
     instruments.sort(key=lambda inst: expiry_from_symbol(inst.get('symbol', '')))
