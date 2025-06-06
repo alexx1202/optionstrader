@@ -1,4 +1,5 @@
 @echo off
 pushd "%~dp0"
-python optionstrader.py "C:\Users\User\OneDrive\Documents\CRYPTO\PYTHON\CRYPTO\optionstrader\trade_config.json"
+REM Call the script with the config file located next to this batch file.
+python optionstrader.py trade_config.json
 pause
