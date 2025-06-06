@@ -9,3 +9,21 @@ def test_load_trade_config_fallback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = optionstrader.load_trade_config('trade_config.json')
     assert {'symbol', 'side', 'quantity'}.issubset(cfg)
+
+def test_get_api_credentials_from_config(tmp_path, monkeypatch):
+    path = tmp_path / 'cfg.json'
+    path.write_text('{"symbol":"S","side":"Buy","quantity":1,"api_key":"K","api_secret":"S"}')
+    monkeypatch.delenv('BYBIT_API_KEY', raising=False)
+    monkeypatch.delenv('BYBIT_API_SECRET', raising=False)
+    cfg = optionstrader.load_trade_config(str(path))
+    key, secret = optionstrader.get_api_credentials(cfg)
+    assert key == 'K' and secret == 'S'
+
+def test_get_api_credentials_env_override(tmp_path, monkeypatch):
+    path = tmp_path / 'cfg.json'
+    path.write_text('{"symbol":"S","side":"Buy","quantity":1,"api_key":"K","api_secret":"S"}')
+    monkeypatch.setenv('BYBIT_API_KEY', 'EK')
+    monkeypatch.setenv('BYBIT_API_SECRET', 'ES')
+    cfg = optionstrader.load_trade_config(str(path))
+    key, secret = optionstrader.get_api_credentials(cfg)
+    assert key == 'EK' and secret == 'ES'

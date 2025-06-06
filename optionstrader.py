@@ -86,6 +86,12 @@ def load_trade_config(path):
             raise ValueError(f"Missing required field in config: {field}")
     return cfg
 
+def get_api_credentials(cfg):
+    """Return API credentials from environment variables or config."""
+    key = os.getenv("BYBIT_API_KEY") or cfg.get("api_key", "")
+    secret = os.getenv("BYBIT_API_SECRET") or cfg.get("api_secret", "")
+    return key, secret
+
 # === Greek fetching via public market endpoint ===
 def fetch_option_ticker(symbol, base_url=BASE_URL):
     endpoint = "/v5/market/tickers"
@@ -206,9 +212,12 @@ def main():
         cfg = load_trade_config(args.order_file)
         symbol, side, qty = cfg["symbol"], cfg["side"], cfg["quantity"]
         entry_price = cfg.get("limit_price")
-        if not API_KEY or not API_SECRET:
-            raise RuntimeError("API credentials not provided. Set BYBIT_API_KEY and BYBIT_API_SECRET environment variables.")
-        trader = BybitOptionsTrader(API_KEY, API_SECRET, BASE_URL)
+        key, secret = get_api_credentials(cfg)
+        if not key or not secret:
+            raise RuntimeError(
+                "API credentials not provided. Set BYBIT_API_KEY and BYBIT_API_SECRET environment variables or include api_key/api_secret in the config file."
+            )
+        trader = BybitOptionsTrader(key, secret, BASE_URL)
         balance = trader.get_wallet_balance()
         # Prepare output
         lines = [f"Timestamp: {ts}", f"Balance: {balance:.4f} USDT"]
