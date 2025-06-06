@@ -20,6 +20,7 @@ import logging
 import os
 import sys
 import traceback
+import subprocess
 
 # === Configuration ===
 API_KEY = "4LsBsDgCxjO02MQcSY"
@@ -45,6 +46,16 @@ ch.setFormatter(fmt)
 logger.addHandler(fh)
 logger.addHandler(ch)
 logger.info("Starting 1.py; logs to %s, output to %s", log_file, output_file)
+
+def ensure_tests_pass():
+    """Run pytest and exit if any tests fail."""
+    logger.info("Running test suite before execution")
+    result = subprocess.run([sys.executable, "-m", "pytest", "-q"], capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.error("Tests failed:\n%s", result.stdout + result.stderr)
+        print(result.stdout + result.stderr)
+        sys.exit(result.returncode)
+    logger.info("All tests passed")
 
 def print_and_write(lines):
     """Print to console and write to output file."""
@@ -222,4 +233,5 @@ def main():
         sys.exit(1)
 
 if __name__=='__main__':
+    ensure_tests_pass()
     main()
