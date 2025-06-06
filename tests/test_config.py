@@ -111,6 +111,29 @@ def test_choose_symbol_by_risk_respects_option_type(monkeypatch):
     assert sym.endswith('-P')
 
 
+def test_choose_symbol_by_risk_preserves_expiry(monkeypatch):
+    instruments = [
+        {'symbol': 'BTC-07JUN25-100000-P'},
+        {'symbol': 'BTC-14JUN25-100000-P'},
+    ]
+    prices = {
+        'BTC-07JUN25-100000-P': {'markPrice': '1'},
+        'BTC-14JUN25-100000-P': {'markPrice': '0.5'},
+    }
+
+    def fake_insts(base_coin, expiry=None, option_type=None, base_url=None):
+        assert option_type == 'P'
+        return instruments
+
+    def fake_tick(symbol, base_url=None):
+        return prices[symbol]
+
+    monkeypatch.setattr(optionstrader, 'fetch_option_instruments', fake_insts)
+    monkeypatch.setattr(optionstrader, 'fetch_option_ticker', fake_tick)
+    sym, _ = optionstrader.choose_symbol_by_risk('BTC-07JUN25-105000-P-USDT', 1, 1)
+    assert sym.startswith('BTC-07JUN25')
+
+
 def test_compute_order_qty_floor():
     qty = optionstrader.compute_order_qty(0.1, 100)
     assert qty == optionstrader.MIN_ORDER_QTY
