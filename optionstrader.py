@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
-"""
-1.py - Combined script to place an options trade via Bybit API and immediately fetch Greek exposures.
-Reads a single JSON config (symbol, side, quantity, optional limit_price), places entry and exit orders,
-logs trade details, retrieves per-option Greeks (delta, gamma, vega, theta), and writes a comprehensive
-output file with timestamps, balance, trade orders, ticker data, Greeks table, and trade executions.
-Separate log files are maintained for general run and trade-specific logs.
+"""Trade execution and Greek exposure script.
+
+This tool reads a single JSON configuration specifying the option symbol,
+side, quantity and optional limit price. It places entry and exit orders via
+the Bybit API, logs all trade details and outputs option Greeks (delta, gamma,
+vega and theta) with timestamps, balance and ticker data. Separate log files
+are created for general runtime information and trade-specific details.
 """
 
 import argparse
 import json
+import logging
+import os
+import subprocess
+import sys
 import time
-import requests
-from tabulate import tabulate
-import hmac
-import hashlib
+import traceback
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlencode
-import logging
-import os
-import sys
-import traceback
-import subprocess
+import hmac
+import hashlib
+
+import requests
+from tabulate import tabulate
 
 # === Configuration ===
 API_KEY = os.getenv("BYBIT_API_KEY", "")
@@ -51,7 +53,9 @@ logger.info("Starting 1.py; logs to %s, output to %s", log_file, output_file)
 def ensure_tests_pass():
     """Run pytest and exit if any tests fail."""
     logger.info("Running test suite before execution")
-    result = subprocess.run([sys.executable, "-m", "pytest", "-q"], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q"], capture_output=True, text=True, check=False
+    )
     if result.returncode != 0:
         logger.error("Tests failed:\n%s", result.stdout + result.stderr)
         print(result.stdout + result.stderr)
@@ -60,7 +64,7 @@ def ensure_tests_pass():
 
 def print_and_write(lines):
     """Print to console and write to output file."""
-    with open(output_file, 'w') as out:
+    with open(output_file, 'w', encoding='utf-8') as out:
         for line in lines:
             print(line)
             out.write(line + "\n")
@@ -79,7 +83,7 @@ def load_trade_config(path):
         candidate = os.path.join(script_dir, candidate)
     if not os.path.exists(candidate):
         raise FileNotFoundError(f"Trade config file not found: {path}")
-    with open(candidate) as f:
+    with open(candidate, encoding='utf-8') as f:
         cfg = json.load(f)
     for field in ("symbol", "side", "quantity"):
         if field not in cfg or cfg[field] in (None, ""):
@@ -94,6 +98,7 @@ def get_api_credentials(cfg):
 
 # === Greek fetching via public market endpoint ===
 def fetch_option_ticker(symbol, base_url=BASE_URL):
+    """Return ticker data for a given option symbol."""
     endpoint = "/v5/market/tickers"
     params = {"category": "option", "symbol": symbol}
     qs = urlencode(params)
@@ -111,19 +116,25 @@ def fetch_option_ticker(symbol, base_url=BASE_URL):
     return lst[0]
 
 # === Options trading ===
-class ApiException(Exception): pass
+class ApiException(Exception):
+    """Custom exception for Bybit API errors."""
+
 
 class BybitOptionsTrader:
+    """Simple wrapper around Bybit's options REST API."""
+
     def __init__(self, api_key, api_secret, base_url):
         self.api_key = api_key
         self.api_secret = api_secret
         self.base_url = base_url
 
     def _generate_signature(self, timestamp, body_or_query):
+        """Return HMAC SHA256 signature for a request."""
         payload = f"{timestamp}{self.api_key}{RECV_WINDOW}{body_or_query}"
         return hmac.new(self.api_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
     def _send_request(self, method, path, body=None, query=""):
+        """Send an authenticated request to the API and return parsed JSON."""
         url = f"{self.base_url}{path}"
         if query:
             url += "?" + query
@@ -149,8 +160,11 @@ class BybitOptionsTrader:
         return data
 
     def get_wallet_balance(self, coin="USDT"):
+        """Return the wallet balance for the specified coin."""
         try:
-            data = self._send_request("GET", "/v5/account/wallet-balance", "", "accountType=UNIFIED")
+            data = self._send_request(
+                "GET", "/v5/account/wallet-balance", "", "accountType=UNIFIED"
+            )
             for entry in data.get("result", {}).get("list", []):
                 for c in entry.get("coin", []):
                     if c.get("coin") == coin:
@@ -160,6 +174,7 @@ class BybitOptionsTrader:
         return 0.0
 
     def place_order(self, symbol, side, qty, price=None, tif="GTC", is_exit=False):
+        """Create an order and return Bybit's result structure."""
         body = {"category":"option","symbol":symbol,"side":side,
                 "orderType":"Limit" if price else "Market",
                 "qty":str(qty),"timeInForce":tif,
@@ -168,11 +183,13 @@ class BybitOptionsTrader:
             body["price"] = str(price)
         if is_exit:
             body["reduceOnly"] = True
-        resp = self._send_request("POST","/v5/order/create",body)
-        logger.info(f"{'Exit' if is_exit else 'Entry'} order placed: {resp.get('result',{})}")
+        resp = self._send_request("POST", "/v5/order/create", body)
+        order_type = 'Exit' if is_exit else 'Entry'
+        logger.info("%s order placed: %s", order_type, resp.get('result', {}))
         return resp.get("result",{})
 
     def get_trade_history(self, symbol, order_id, limit=20):
+        """Return execution records for a given order."""
         q = f"category=option&symbol={symbol}&limit={limit}"
         data = self._send_request("GET","/v5/execution/list","",q)
         trades = data.get("result",{}).get("list",[])
@@ -185,6 +202,7 @@ class BybitOptionsTrader:
         return data.get("result", {}).get("list", [])
 
     def place_and_log(self, symbol, side, qty, entry_price, tif):
+        """Place entry and exit orders and log the resulting trades."""
         # Place entry
         result = self.place_order(symbol, side, qty, entry_price, tif, False)
         oid = result.get("orderId")
@@ -196,17 +214,28 @@ class BybitOptionsTrader:
             if trades:
                 break
 
+        # Always fetch order details as fallback for avgPrice
+        order_info = self.get_order_detail(symbol, oid)
+        order = order_info[0] if order_info else {}
         # Log trades to file
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         trade_log = os.path.join(script_dir, f"option_trade_log_{ts}.log")
-        with open(trade_log, 'w') as f:
+        with open(trade_log, 'w', encoding='utf-8') as f:
             for t in trades:
                 f.write(json.dumps(t, indent=2) + "\n")
-        logger.info(f"Trade log saved to {trade_log}")
+            if order:
+                f.write(json.dumps({"order": order}, indent=2) + "\n")
+        logger.info("Trade log saved to %s", trade_log)
 
         # Determine entry price for exit calculation
         if not entry_price:
             entry = next((t for t in trades if t.get('side', '').lower() == side.lower()), None)
+            if entry and entry.get('execPrice'):
+                entry_price = float(entry.get('execPrice'))
+            elif order and order.get('avgPrice'):
+                entry_price = float(order.get('avgPrice'))
+            elif order and order.get('price'):
+                entry_price = float(order.get('price'))
             else:
                 logger.warning("No entry trade to infer price; skipping exit order")
                 return trades, trade_log
@@ -217,6 +246,7 @@ class BybitOptionsTrader:
         return trades, trade_log
 
 def main():
+    """Execute a single options trade and output Greek exposures."""
     parser = argparse.ArgumentParser(description="Execute trade and fetch Greeks.")
     parser.add_argument("order_file", help="Path to JSON config.")
     args = parser.parse_args()
@@ -228,7 +258,8 @@ def main():
         key, secret = get_api_credentials(cfg)
         if not key or not secret:
             raise RuntimeError(
-                "API credentials not provided. Set BYBIT_API_KEY and BYBIT_API_SECRET environment variables or include api_key/api_secret in the config file."
+                "API credentials not provided. Set BYBIT_API_KEY and BYBIT_API_SECRET "
+                "environment variables or include api_key/api_secret in the config file."
             )
         trader = BybitOptionsTrader(key, secret, BASE_URL)
         balance = trader.get_wallet_balance()
@@ -238,8 +269,9 @@ def main():
             lines.append("⚠️ Insufficient balance => abort")
             print_and_write(lines)
             sys.exit(1)
-        lines.append(f"Placing {side} {qty} {symbol} @ {'Market' if not entry_price else entry_price}")
-        trades, trade_log = trader.place_and_log(symbol, side, qty, entry_price, "GTC")
+        order_desc = 'Market' if not entry_price else entry_price
+        lines.append(f"Placing {side} {qty} {symbol} @ {order_desc}")
+        _trades, trade_log = trader.place_and_log(symbol, side, qty, entry_price, "GTC")
         lines.append(f"Trade log: {trade_log}")
         # Fetch ticker and Greeks
         tick = fetch_option_ticker(symbol)
