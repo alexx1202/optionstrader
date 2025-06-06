@@ -65,3 +65,8 @@ def test_choose_symbol_by_risk_earliest(monkeypatch):
 def test_compute_order_qty_floor():
     qty = optionstrader.compute_order_qty(0.1, 100)
     assert qty == optionstrader.MIN_ORDER_QTY
+
+
+def test_compute_order_qty_round_to_increment():
+    qty = optionstrader.compute_order_qty(0.32, 20)
+    assert qty == 0.02

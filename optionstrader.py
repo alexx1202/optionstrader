@@ -139,13 +139,17 @@ def fetch_option_instruments(base_coin="BTC", expiry=None, option_type=None, bas
 MIN_ORDER_QTY = 0.01
 
 def compute_order_qty(risk_usd, price, min_qty=MIN_ORDER_QTY):
-    """Return the order quantity for the given risk and price, respecting the minimum."""
+    """Return the order quantity rounded to the exchange increment."""
     if not risk_usd or not price:
         return 0.0
-    qty = round(risk_usd / price, 6)
+    qty = risk_usd / price
     if qty < min_qty:
         qty = min_qty
-    return qty
+    # round to nearest allowed increment (0.01)
+    steps = round(qty / min_qty)
+    qty = steps * min_qty
+    return round(qty, 2)
+
 
 def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
     """Return the option symbol from the earliest expiry whose mark price is closest to risk/qty."""
