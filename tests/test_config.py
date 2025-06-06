@@ -134,7 +134,7 @@ def test_choose_symbol_by_risk_filters_option_type(monkeypatch):
     sym, _ = optionstrader.choose_symbol_by_risk('BTC-07JUN25-105000-P-USDT', 1, 1)
     assert sym.endswith('-P')
 
-
+    
 def test_choose_symbol_by_risk_preserves_expiry(monkeypatch):
     instruments = [
         {'symbol': 'BTC-07JUN25-100000-P'},
