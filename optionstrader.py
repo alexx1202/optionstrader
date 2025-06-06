@@ -11,6 +11,7 @@ import argparse
 import json
 import time
 import requests
+from tabulate import tabulate
 import hmac
 import hashlib
 import uuid
@@ -22,8 +23,8 @@ import sys
 import traceback
 
 # === Configuration ===
-API_KEY = "4LsBsDgCxjO02MQcSY"
-API_SECRET = "M40Sgh3yQKMywQMFXzR6sZmd6b7vhLeiiQvI"
+API_KEY = os.getenv("BYBIT_API_KEY", "")
+API_SECRET = os.getenv("BYBIT_API_SECRET", "")
 BASE_URL = "https://api-demo.bybit.com"
 RECV_WINDOW = "5000"
 SUB_ACCOUNT_NAME = ""
@@ -65,12 +66,11 @@ def load_trade_config(path):
     return cfg
 
 # === Greek fetching via public market endpoint ===
-def fetch_option_ticker(symbol):
-    base = "https://api.bybit.com"
+def fetch_option_ticker(symbol, base_url=BASE_URL):
     endpoint = "/v5/market/tickers"
     params = {"category": "option", "symbol": symbol}
     qs = urlencode(params)
-    url = f"{base}{endpoint}?{qs}"
+    url = f"{base_url}{endpoint}?{qs}"
     logger.debug("Fetching ticker: %s", url)
     resp = requests.get(url, timeout=10)
     resp.raise_for_status()
@@ -122,11 +122,14 @@ class BybitOptionsTrader:
         return data
 
     def get_wallet_balance(self, coin="USDT"):
-        data = self._send_request("GET","/v5/account/wallet-balance","", f"accountType=UNIFIED")
-        for entry in data.get("result",{}).get("list",[]):
-            for c in entry.get("coin",[]):
-                if c["coin"]==coin:
-                    return float(c.get("walletBalance",0))
+        try:
+            data = self._send_request("GET", "/v5/account/wallet-balance", "", "accountType=UNIFIED")
+            for entry in data.get("result", {}).get("list", []):
+                for c in entry.get("coin", []):
+                    if c.get("coin") == coin:
+                        return float(c.get("walletBalance", 0))
+        except Exception as exc:
+            logger.error("Failed to retrieve wallet balance: %s", exc)
         return 0.0
 
     def place_order(self, symbol, side, qty, price=None, tif="GTC", is_exit=False):
@@ -182,6 +185,8 @@ def main():
         cfg = load_trade_config(args.order_file)
         symbol, side, qty = cfg["symbol"], cfg["side"], cfg["quantity"]
         entry_price = cfg.get("limit_price")
+        if not API_KEY or not API_SECRET:
+            raise RuntimeError("API credentials not provided. Set BYBIT_API_KEY and BYBIT_API_SECRET environment variables.")
         trader = BybitOptionsTrader(API_KEY, API_SECRET, BASE_URL)
         balance = trader.get_wallet_balance()
         # Prepare output
@@ -201,19 +206,14 @@ def main():
         # Greeks table
         greeks = {k: float(tick[k]) for k in ('delta','gamma','vega','theta') if k in tick}
         mult = 1 if side.lower()=='buy' else -1
-        headers = ['Greek','Per-Contract','Qty','Exposure']
-        rows=[]
-        for name,per in greeks.items():
-            exp = per*qty*mult
-            rows.append([name.capitalize(),f"{per:.8f}",str(qty),f"{exp:.8f}"])
-        # format table
-        cols = list(zip(headers,*rows))
-        widths=[max(len(str(c)) for c in col) for col in cols]
+        headers = ['Greek', 'Per-Contract', 'Qty', 'Exposure']
+        rows = []
+        for name, per in greeks.items():
+            exp = per * qty * mult
+            rows.append([name.capitalize(), f"{per:.8f}", str(qty), f"{exp:.8f}"])
         lines.append("\nGreek Exposures:")
-        lines.append("  ".join(h.ljust(w) for h,w in zip(headers,widths)))
-        lines.append("-"*sum(widths)+"--")
-        for r in rows:
-            lines.append("  ".join(c.ljust(w) for c,w in zip(r,widths)))
+        table = tabulate(rows, headers=headers, tablefmt="plain")
+        lines.extend(table.splitlines())
         print_and_write(lines)
     except Exception:
         tb=traceback.format_exc()
