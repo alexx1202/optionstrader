@@ -21,7 +21,7 @@ def webhook():
         tick = optionstrader.fetch_option_ticker(symbol)
         price = float(tick.get('markPrice', 0))
     if risk_usd and price:
-        qty = round(risk_usd / price, 6)
+        qty = optionstrader.compute_order_qty(risk_usd, price)
     key, secret = optionstrader.get_api_credentials(cfg)
     trader = optionstrader.BybitOptionsTrader(key, secret, optionstrader.BASE_URL)
     trader.place_order(symbol, side, qty)
