@@ -15,7 +15,7 @@ from tabulate import tabulate
 import hmac
 import hashlib
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 import logging
 import os
@@ -185,7 +185,7 @@ class BybitOptionsTrader:
         time.sleep(2)
         trades = self.get_trade_history(symbol, oid)
         # Log trades to file
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         trade_log = os.path.join(script_dir, f"option_trade_log_{ts}.log")
         with open(trade_log,'w') as f:
             for t in trades:
@@ -208,7 +208,7 @@ def main():
     parser.add_argument("order_file", help="Path to JSON config.")
     args = parser.parse_args()
     try:
-        ts = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
         cfg = load_trade_config(args.order_file)
         symbol, side, qty = cfg["symbol"], cfg["side"], cfg["quantity"]
         entry_price = cfg.get("limit_price")
