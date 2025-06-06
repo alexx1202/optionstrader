@@ -85,6 +85,8 @@ def load_trade_config(path):
         raise FileNotFoundError(f"Trade config file not found: {path}")
     with open(candidate, encoding='utf-8') as f:
         cfg = json.load(f)
+    cfg.setdefault("auto_trade", False)
+    cfg.setdefault("risk_usd", 0)
     for field in ("symbol", "side", "quantity"):
         if field not in cfg or cfg[field] in (None, ""):
             raise ValueError(f"Missing required field in config: {field}")
@@ -114,6 +116,70 @@ def fetch_option_ticker(symbol, base_url=BASE_URL):
     if not lst:
         raise RuntimeError(f"No ticker data for symbol: {symbol}")
     return lst[0]
+
+def fetch_option_instruments(base_coin="BTC", expiry=None, option_type=None, base_url=BASE_URL):
+    """Return a list of option symbols for the given filters."""
+    endpoint = "/v5/market/instruments-info"
+    params = {"category": "option", "baseCoin": base_coin}
+    if expiry:
+        params["expDate"] = expiry
+    if option_type:
+        params["optionType"] = option_type
+    qs = urlencode(params)
+    url = f"{base_url}{endpoint}?{qs}"
+    logger.debug("Fetching instruments: %s", url)
+    resp = requests.get(url, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    logger.debug("Instruments response: %s", data)
+    if data.get("retCode") != 0:
+        raise RuntimeError(f"API Error {data['retCode']}: {data.get('retMsg')}")
+    return data.get("result", {}).get("list", [])
+
+MIN_ORDER_QTY = 0.01
+
+def compute_order_qty(risk_usd, price, min_qty=MIN_ORDER_QTY):
+    """Return the order quantity for the given risk and price, respecting the minimum."""
+    if not risk_usd or not price:
+        return 0.0
+    qty = round(risk_usd / price, 6)
+    if qty < min_qty:
+        qty = min_qty
+    return qty
+
+def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
+    """Return the option symbol from the earliest expiry whose mark price is closest to risk/qty."""
+    if not risk_usd or not qty:
+        return base_symbol, 0.0
+    parts = base_symbol.split('-')
+    if len(parts) < 5:
+        return base_symbol, 0.0
+    base_coin, _expiry, _strike, opt_type, _quote = parts
+    instruments = fetch_option_instruments(base_coin, option_type=opt_type, base_url=base_url)
+    if not instruments:
+        return base_symbol, 0.0
+    def expiry_from_symbol(sym):
+        p = sym.split('-')
+        return p[1] if len(p) > 1 else ''
+    instruments.sort(key=lambda inst: expiry_from_symbol(inst.get('symbol', '')))
+    first_expiry = expiry_from_symbol(instruments[0].get('symbol', ''))
+    filtered = [inst for inst in instruments if expiry_from_symbol(inst.get('symbol', '')) == first_expiry]
+    target = risk_usd / qty
+    best_sym = base_symbol
+    best_price = 0.0
+    best_diff = float('inf')
+    for inst in filtered:
+        sym = inst.get('symbol')
+        if not sym:
+            continue
+        tick = fetch_option_ticker(sym, base_url)
+        price = float(tick.get('markPrice', 0))
+        diff = abs(price - target)
+        if diff < best_diff:
+            best_diff = diff
+            best_sym = sym
+            best_price = price
+    return best_sym, best_price
 
 # === Options trading ===
 class ApiException(Exception):
