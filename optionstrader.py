@@ -195,28 +195,18 @@ class BybitOptionsTrader:
             trades = self.get_trade_history(symbol, oid)
             if trades:
                 break
-        # Always fetch order details as fallback for avgPrice
-        order_info = self.get_order_detail(symbol, oid)
-        order = order_info[0] if order_info else {}
+
         # Log trades to file
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         trade_log = os.path.join(script_dir, f"option_trade_log_{ts}.log")
         with open(trade_log, 'w') as f:
             for t in trades:
                 f.write(json.dumps(t, indent=2) + "\n")
-            if order:
-                f.write(json.dumps({"order": order}, indent=2) + "\n")
         logger.info(f"Trade log saved to {trade_log}")
 
         # Determine entry price for exit calculation
         if not entry_price:
             entry = next((t for t in trades if t.get('side', '').lower() == side.lower()), None)
-            if entry and entry.get('execPrice'):
-                entry_price = float(entry.get('execPrice'))
-            elif order and order.get('avgPrice'):
-                entry_price = float(order.get('avgPrice'))
-            elif order and order.get('price'):
-                entry_price = float(order.get('price'))
             else:
                 logger.warning("No entry trade to infer price; skipping exit order")
                 return trades, trade_log
