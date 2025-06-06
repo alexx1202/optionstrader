@@ -177,6 +177,12 @@ def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
     if not instruments:
         return base_symbol, 0.0
 
+    # API filtering by option type is not always reliable; enforce it here
+    instruments = [i for i in instruments
+                   if i.get('symbol', '').split('-')[3].upper() == opt_type.upper()]
+    if not instruments:
+        return base_symbol, 0.0
+
     def expiry_from_symbol(sym):
         p = sym.split('-')
         if len(p) > 1:

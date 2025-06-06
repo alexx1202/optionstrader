@@ -111,6 +111,30 @@ def test_choose_symbol_by_risk_respects_option_type(monkeypatch):
     assert sym.endswith('-P')
 
 
+def test_choose_symbol_by_risk_filters_option_type(monkeypatch):
+    """Even if instruments include calls, the function should return a put."""
+    instruments = [
+        {'symbol': 'BTC-07JUN25-100000-C'},
+        {'symbol': 'BTC-07JUN25-100000-P'},
+    ]
+    prices = {
+        'BTC-07JUN25-100000-C': {'markPrice': '0.8'},
+        'BTC-07JUN25-100000-P': {'markPrice': '1.2'},
+    }
+
+    def fake_insts(base_coin, expiry=None, option_type=None, base_url=None):
+        assert option_type == 'P'
+        return instruments  # return both call and put
+
+    def fake_tick(symbol, base_url=None):
+        return prices[symbol]
+
+    monkeypatch.setattr(optionstrader, 'fetch_option_instruments', fake_insts)
+    monkeypatch.setattr(optionstrader, 'fetch_option_ticker', fake_tick)
+    sym, _ = optionstrader.choose_symbol_by_risk('BTC-07JUN25-105000-P-USDT', 1, 1)
+    assert sym.endswith('-P')
+
+    
 def test_choose_symbol_by_risk_preserves_expiry(monkeypatch):
     instruments = [
         {'symbol': 'BTC-07JUN25-100000-P'},
