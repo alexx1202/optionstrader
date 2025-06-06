@@ -1,9 +1,9 @@
 {
-  "symbol": "BTC-07JUN25-104000-P-USDT",
+  "symbol": "BTC-7JUN25-104000-P-USDT",
   "side": "Buy",
   "quantity": 0.01,
   "limit_price": null,
-  "risk_usd": 50,
+  "risk_usd": 2.20,
   "auto_trade": true,
   "api_key": "4LsBsDgCxjO02MQcSY",
   "api_secret": "M40Sgh3yQKMywQMFXzR6sZmd6b7vhLeiiQvI"
