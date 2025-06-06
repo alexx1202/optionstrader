@@ -66,10 +66,20 @@ def print_and_write(lines):
             out.write(line + "\n")
 
 def load_trade_config(path):
-    """Load and validate trade configuration from a JSON file."""
-    if not os.path.exists(path):
+    """Load and validate trade configuration from a JSON file.
+
+    The function first attempts to read ``path`` as provided. If that fails and
+    ``path`` is a relative location, it falls back to searching for the file in
+    the directory of this script. This allows the script to be relocated without
+    requiring absolute paths in helper scripts like ``run.bat``.
+    """
+    path = os.path.expanduser(os.path.expandvars(path))
+    candidate = path
+    if not os.path.isabs(candidate) and not os.path.exists(candidate):
+        candidate = os.path.join(script_dir, candidate)
+    if not os.path.exists(candidate):
         raise FileNotFoundError(f"Trade config file not found: {path}")
-    with open(path) as f:
+    with open(candidate) as f:
         cfg = json.load(f)
     for field in ("symbol", "side", "quantity"):
         if field not in cfg or cfg[field] in (None, ""):
