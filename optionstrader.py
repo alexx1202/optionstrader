@@ -178,6 +178,12 @@ class BybitOptionsTrader:
         trades = data.get("result",{}).get("list",[])
         return [t for t in trades if t.get("orderId")==order_id]
 
+    def get_order_detail(self, symbol, order_id):
+        """Return realtime order info for the given order_id."""
+        q = f"category=option&symbol={symbol}&orderId={order_id}"
+        data = self._send_request("GET", "/v5/order/realtime", "", q)
+        return data.get("result", {}).get("list", [])
+
     def place_and_log(self, symbol, side, qty, entry_price, tif):
         # Place entry
         result = self.place_order(symbol, side, qty, entry_price, tif, False)
@@ -189,6 +195,7 @@ class BybitOptionsTrader:
             trades = self.get_trade_history(symbol, oid)
             if trades:
                 break
+
         # Log trades to file
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         trade_log = os.path.join(script_dir, f"option_trade_log_{ts}.log")
@@ -200,8 +207,6 @@ class BybitOptionsTrader:
         # Determine entry price for exit calculation
         if not entry_price:
             entry = next((t for t in trades if t.get('side', '').lower() == side.lower()), None)
-            if entry:
-                entry_price = float(entry.get('execPrice'))
             else:
                 logger.warning("No entry trade to infer price; skipping exit order")
                 return trades, trade_log
