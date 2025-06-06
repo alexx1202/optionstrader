@@ -213,6 +213,7 @@ class BybitOptionsTrader:
             trades = self.get_trade_history(symbol, oid)
             if trades:
                 break
+
         # Always fetch order details as fallback for avgPrice
         order_info = self.get_order_detail(symbol, oid)
         order = order_info[0] if order_info else {}
