@@ -172,8 +172,14 @@ def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
     parts = base_symbol.split('-')
     if len(parts) < 5:
         return base_symbol, 0.0
-    base_coin, _expiry, _strike, opt_type, _quote = parts
+    base_coin, expiry_token, _strike, opt_type, _quote = parts
     instruments = fetch_option_instruments(base_coin, option_type=opt_type, base_url=base_url)
+    if not instruments:
+        return base_symbol, 0.0
+
+    # API filtering by option type is not always reliable; enforce it here
+    instruments = [i for i in instruments
+                   if i.get('symbol', '').split('-')[3].upper() == opt_type.upper()]
     if not instruments:
         return base_symbol, 0.0
 
@@ -184,6 +190,12 @@ def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
             if dt:
                 return dt
         return datetime.max
+
+    desired_expiry = _parse_expiry(expiry_token)
+    if desired_expiry:
+        same_expiry = [i for i in instruments if expiry_from_symbol(i.get('symbol', '')) == desired_expiry]
+        if same_expiry:
+            instruments = same_expiry
 
     instruments.sort(key=lambda inst: expiry_from_symbol(inst.get('symbol', '')))
     first_expiry = expiry_from_symbol(instruments[0].get('symbol', ''))
