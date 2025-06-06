@@ -15,7 +15,7 @@ from tabulate import tabulate
 import hmac
 import hashlib
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 import logging
 import os
@@ -182,21 +182,29 @@ class BybitOptionsTrader:
         # Place entry
         result = self.place_order(symbol, side, qty, entry_price, tif, False)
         oid = result.get("orderId")
-        time.sleep(2)
-        trades = self.get_trade_history(symbol, oid)
+        # Give Bybit some time to generate execution records
+        trades = []
+        for _ in range(5):
+            time.sleep(2)
+            trades = self.get_trade_history(symbol, oid)
+            if trades:
+                break
         # Log trades to file
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         trade_log = os.path.join(script_dir, f"option_trade_log_{ts}.log")
-        with open(trade_log,'w') as f:
+        with open(trade_log, 'w') as f:
             for t in trades:
-                f.write(json.dumps(t,indent=2)+"\n")
+                f.write(json.dumps(t, indent=2) + "\n")
         logger.info(f"Trade log saved to {trade_log}")
-        # Place exit
+
+        # Determine entry price for exit calculation
         if not entry_price:
-            entry = next((t for t in trades if t['side'].lower()==side.lower()),None)
-            if not entry:
-                raise RuntimeError("No entry trade to infer price")
-            entry_price = float(entry['execPrice'])
+            entry = next((t for t in trades if t.get('side', '').lower() == side.lower()), None)
+            if entry:
+                entry_price = float(entry.get('execPrice'))
+            else:
+                logger.warning("No entry trade to infer price; skipping exit order")
+                return trades, trade_log
         # Calculate target: e.g. 3x entry_price
         target = entry_price * 3
         exit_side = "Sell" if side.lower()=="buy" else "Buy"
@@ -208,7 +216,7 @@ def main():
     parser.add_argument("order_file", help="Path to JSON config.")
     args = parser.parse_args()
     try:
-        ts = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
         cfg = load_trade_config(args.order_file)
         symbol, side, qty = cfg["symbol"], cfg["side"], cfg["quantity"]
         entry_price = cfg.get("limit_price")
