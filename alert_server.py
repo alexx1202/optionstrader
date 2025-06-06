@@ -13,15 +13,19 @@ def webhook():
     side = data.get('side', cfg.get('side', 'Buy'))
     symbol = cfg['symbol']
     risk_usd = float(cfg.get('risk_usd', 0))
-    tick = optionstrader.fetch_option_ticker(symbol)
-    price = float(tick.get('markPrice', 0))
     qty = cfg['quantity']
+    price = 0.0
+    if risk_usd:
+        symbol, price = optionstrader.choose_symbol_by_risk(symbol, risk_usd, qty)
+    if not price:
+        tick = optionstrader.fetch_option_ticker(symbol)
+        price = float(tick.get('markPrice', 0))
     if risk_usd and price:
         qty = round(risk_usd / price, 6)
     key, secret = optionstrader.get_api_credentials(cfg)
     trader = optionstrader.BybitOptionsTrader(key, secret, optionstrader.BASE_URL)
     trader.place_order(symbol, side, qty)
-    return jsonify({'message': 'order sent', 'qty': qty}), 200
+    return jsonify({'message': 'order sent', 'qty': qty, 'symbol': symbol}), 200
 
 if __name__ == '__main__':
 
