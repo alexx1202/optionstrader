@@ -41,10 +41,12 @@ def test_choose_symbol_by_risk_earliest(monkeypatch):
     instruments = [
         {'symbol': 'BTC-07JUN25-100000-P'},
         {'symbol': 'BTC-14JUN25-100000-P'},
+        {'symbol': 'BTC-25JUL25-100000-P'},
     ]
     prices = {
         'BTC-07JUN25-100000-P': {'markPrice': '1'},
         'BTC-14JUN25-100000-P': {'markPrice': '0.5'},
+        'BTC-25JUL25-100000-P': {'markPrice': '0.2'},
     }
 
     def fake_insts(base_coin, expiry=None, option_type=None, base_url=None):

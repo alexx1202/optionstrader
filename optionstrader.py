@@ -162,9 +162,16 @@ def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
     instruments = fetch_option_instruments(base_coin, option_type=opt_type, base_url=base_url)
     if not instruments:
         return base_symbol, 0.0
+
     def expiry_from_symbol(sym):
         p = sym.split('-')
-        return p[1] if len(p) > 1 else ''
+        if len(p) > 1:
+            try:
+                return datetime.strptime(p[1], "%d%b%y")
+            except ValueError:
+                return datetime.max
+        return datetime.max
+
     instruments.sort(key=lambda inst: expiry_from_symbol(inst.get('symbol', '')))
     first_expiry = expiry_from_symbol(instruments[0].get('symbol', ''))
     filtered = [inst for inst in instruments if expiry_from_symbol(inst.get('symbol', '')) == first_expiry]
