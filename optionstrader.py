@@ -130,16 +130,28 @@ def fetch_option_instruments(base_coin="BTC", expiry=None, option_type=None, bas
         elif opt.upper() in ("C", "CALL"):
             opt = "Call"
         params["optionType"] = opt
-    qs = urlencode(params)
-    url = f"{base_url}{endpoint}?{qs}"
-    logger.debug("Fetching instruments: %s", url)
-    resp = requests.get(url, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-    logger.debug("Instruments response: %s", data)
-    if data.get("retCode") != 0:
-        raise RuntimeError(f"API Error {data['retCode']}: {data.get('retMsg')}")
-    return data.get("result", {}).get("list", [])
+
+    instruments = []
+    cursor = None
+    while True:
+        qs = urlencode({k: v for k, v in params.items() if v is not None})
+        if cursor:
+            qs += f"&cursor={cursor}"
+        url = f"{base_url}{endpoint}?{qs}"
+        logger.debug("Fetching instruments: %s", url)
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.debug("Instruments response: %s", data)
+        if data.get("retCode") != 0:
+            raise RuntimeError(
+                f"API Error {data['retCode']}: {data.get('retMsg')}"
+            )
+        instruments.extend(data.get("result", {}).get("list", []))
+        cursor = data.get("result", {}).get("nextPageCursor")
+        if not cursor:
+            break
+    return instruments
 
 MIN_ORDER_QTY = 0.01
 
