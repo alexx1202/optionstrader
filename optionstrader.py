@@ -98,6 +98,27 @@ def get_api_credentials(cfg):
     secret = os.getenv("BYBIT_API_SECRET") or cfg.get("api_secret", "")
     return key, secret
 
+def get_telegram_credentials(cfg):
+    """Return Telegram bot token and chat id from env or config."""
+    token = os.getenv("TELEGRAM_TOKEN") or cfg.get("telegram_token", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID") or cfg.get("telegram_chat_id", "")
+    return token, chat_id
+
+def send_telegram_document(path, token, chat_id, caption=None):
+    """Send a file to a Telegram chat using the Bot API."""
+    if not token or not chat_id:
+        return
+    url = f"https://api.telegram.org/bot{token}/sendDocument"
+    data = {"chat_id": chat_id}
+    if caption:
+        data["caption"] = caption
+    try:
+        with open(path, "rb") as doc:
+            requests.post(url, data=data, files={"document": doc}, timeout=10)
+        logger.info("Sent %s to Telegram chat %s", path, chat_id)
+    except Exception as exc:
+        logger.error("Failed to send Telegram document: %s", exc)
+
 # === Greek fetching via public market endpoint ===
 def fetch_option_ticker(symbol, base_url=BASE_URL):
     """Return ticker data for a given option symbol."""
@@ -404,6 +425,9 @@ def main():
         table = tabulate(rows, headers=headers, tablefmt="plain")
         lines.extend(table.splitlines())
         print_and_write(lines)
+        token, chat_id = get_telegram_credentials(cfg)
+        send_telegram_document(trade_log, token, chat_id,
+                               caption=f"{side} {qty} {symbol}")
     except Exception:
         tb=traceback.format_exc()
         logger.error("Fatal:\n%s",tb)
