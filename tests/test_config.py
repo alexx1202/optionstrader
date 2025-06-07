@@ -111,6 +111,53 @@ def test_choose_symbol_by_risk_respects_option_type(monkeypatch):
     assert sym.endswith('-P')
 
 
+def test_choose_symbol_by_risk_filters_option_type(monkeypatch):
+    """Even if instruments include calls, the function should return a put."""
+    instruments = [
+        {'symbol': 'BTC-07JUN25-100000-C'},
+        {'symbol': 'BTC-07JUN25-100000-P'},
+    ]
+    prices = {
+        'BTC-07JUN25-100000-C': {'markPrice': '0.8'},
+        'BTC-07JUN25-100000-P': {'markPrice': '1.2'},
+    }
+
+    def fake_insts(base_coin, expiry=None, option_type=None, base_url=None):
+        assert option_type == 'P'
+        return instruments  # return both call and put
+
+    def fake_tick(symbol, base_url=None):
+        return prices[symbol]
+
+    monkeypatch.setattr(optionstrader, 'fetch_option_instruments', fake_insts)
+    monkeypatch.setattr(optionstrader, 'fetch_option_ticker', fake_tick)
+    sym, _ = optionstrader.choose_symbol_by_risk('BTC-07JUN25-105000-P-USDT', 1, 1)
+    assert sym.endswith('-P')
+
+
+def test_choose_symbol_by_risk_preserves_expiry(monkeypatch):
+    instruments = [
+        {'symbol': 'BTC-07JUN25-100000-P'},
+        {'symbol': 'BTC-14JUN25-100000-P'},
+    ]
+    prices = {
+        'BTC-07JUN25-100000-P': {'markPrice': '1'},
+        'BTC-14JUN25-100000-P': {'markPrice': '0.5'},
+    }
+
+    def fake_insts(base_coin, expiry=None, option_type=None, base_url=None):
+        assert option_type == 'P'
+        return instruments
+
+    def fake_tick(symbol, base_url=None):
+        return prices[symbol]
+
+    monkeypatch.setattr(optionstrader, 'fetch_option_instruments', fake_insts)
+    monkeypatch.setattr(optionstrader, 'fetch_option_ticker', fake_tick)
+    sym, _ = optionstrader.choose_symbol_by_risk('BTC-07JUN25-105000-P-USDT', 1, 1)
+    assert sym.startswith('BTC-07JUN25')
+
+
 def test_compute_order_qty_floor():
     qty = optionstrader.compute_order_qty(0.1, 100)
     assert qty == optionstrader.MIN_ORDER_QTY
@@ -119,3 +166,44 @@ def test_compute_order_qty_floor():
 def test_compute_order_qty_round_to_increment():
     qty = optionstrader.compute_order_qty(0.32, 20)
     assert qty == 0.02
+
+
+def test_fetch_option_instruments_pagination(monkeypatch):
+    """Ensure multiple pages of instruments are combined."""
+    pages = [
+        {
+            "retCode": 0,
+            "result": {
+                "list": [{"symbol": "BTC-07JUN25-100000-P"}],
+                "nextPageCursor": "abc",
+            },
+        },
+        {
+            "retCode": 0,
+            "result": {
+                "list": [{"symbol": "BTC-14JUN25-100000-P"}],
+                "nextPageCursor": "",
+            },
+        },
+    ]
+
+    def fake_get(url, timeout=10):
+        data = pages.pop(0)
+
+        class Resp:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return data
+
+        return Resp()
+
+    monkeypatch.setattr(optionstrader.requests, "get", fake_get)
+    result = optionstrader.fetch_option_instruments(
+        "BTC", option_type="P", base_url="http://x"
+    )
+    assert [r["symbol"] for r in result] == [
+        "BTC-07JUN25-100000-P",
+        "BTC-14JUN25-100000-P",
+    ]
