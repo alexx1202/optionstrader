@@ -24,7 +24,10 @@ def webhook():
         qty = optionstrader.compute_order_qty(risk_usd, price)
     key, secret = optionstrader.get_api_credentials(cfg)
     trader = optionstrader.BybitOptionsTrader(key, secret, optionstrader.BASE_URL)
-    trader.place_and_log(symbol, side, qty, None, 'GTC')
+    _trades, trade_log = trader.place_and_log(symbol, side, qty, None, 'GTC')
+    token, chat_id = optionstrader.get_telegram_credentials(cfg)
+    optionstrader.send_telegram_document(trade_log, token, chat_id,
+                                         caption=f"{side} {qty} {symbol}")
     return jsonify({'message': 'order sent', 'qty': qty, 'symbol': symbol}), 200
 
 if __name__ == '__main__':

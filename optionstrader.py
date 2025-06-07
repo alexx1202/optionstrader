@@ -98,6 +98,27 @@ def get_api_credentials(cfg):
     secret = os.getenv("BYBIT_API_SECRET") or cfg.get("api_secret", "")
     return key, secret
 
+def get_telegram_credentials(cfg):
+    """Return Telegram bot token and chat id from env or config."""
+    token = os.getenv("TELEGRAM_TOKEN") or cfg.get("telegram_token", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID") or cfg.get("telegram_chat_id", "")
+    return token, chat_id
+
+def send_telegram_document(path, token, chat_id, caption=None):
+    """Send a file to a Telegram chat using the Bot API."""
+    if not token or not chat_id:
+        return
+    url = f"https://api.telegram.org/bot{token}/sendDocument"
+    data = {"chat_id": chat_id}
+    if caption:
+        data["caption"] = caption
+    try:
+        with open(path, "rb") as doc:
+            requests.post(url, data=data, files={"document": doc}, timeout=10)
+        logger.info("Sent %s to Telegram chat %s", path, chat_id)
+    except Exception as exc:
+        logger.error("Failed to send Telegram document: %s", exc)
+
 # === Greek fetching via public market endpoint ===
 def fetch_option_ticker(symbol, base_url=BASE_URL):
     """Return ticker data for a given option symbol."""
@@ -130,16 +151,28 @@ def fetch_option_instruments(base_coin="BTC", expiry=None, option_type=None, bas
         elif opt.upper() in ("C", "CALL"):
             opt = "Call"
         params["optionType"] = opt
-    qs = urlencode(params)
-    url = f"{base_url}{endpoint}?{qs}"
-    logger.debug("Fetching instruments: %s", url)
-    resp = requests.get(url, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-    logger.debug("Instruments response: %s", data)
-    if data.get("retCode") != 0:
-        raise RuntimeError(f"API Error {data['retCode']}: {data.get('retMsg')}")
-    return data.get("result", {}).get("list", [])
+
+    instruments = []
+    cursor = None
+    while True:
+        qs = urlencode({k: v for k, v in params.items() if v is not None})
+        if cursor:
+            qs += f"&cursor={cursor}"
+        url = f"{base_url}{endpoint}?{qs}"
+        logger.debug("Fetching instruments: %s", url)
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.debug("Instruments response: %s", data)
+        if data.get("retCode") != 0:
+            raise RuntimeError(
+                f"API Error {data['retCode']}: {data.get('retMsg')}"
+            )
+        instruments.extend(data.get("result", {}).get("list", []))
+        cursor = data.get("result", {}).get("nextPageCursor")
+        if not cursor:
+            break
+    return instruments
 
 MIN_ORDER_QTY = 0.01
 
@@ -172,8 +205,14 @@ def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
     parts = base_symbol.split('-')
     if len(parts) < 5:
         return base_symbol, 0.0
-    base_coin, _expiry, _strike, opt_type, _quote = parts
+    base_coin, expiry_token, _strike, opt_type, _quote = parts
     instruments = fetch_option_instruments(base_coin, option_type=opt_type, base_url=base_url)
+    if not instruments:
+        return base_symbol, 0.0
+
+    # API filtering by option type is not always reliable; enforce it here
+    instruments = [i for i in instruments
+                   if i.get('symbol', '').split('-')[3].upper() == opt_type.upper()]
     if not instruments:
         return base_symbol, 0.0
 
@@ -184,6 +223,12 @@ def choose_symbol_by_risk(base_symbol, risk_usd, qty, base_url=BASE_URL):
             if dt:
                 return dt
         return datetime.max
+
+    desired_expiry = _parse_expiry(expiry_token)
+    if desired_expiry:
+        same_expiry = [i for i in instruments if expiry_from_symbol(i.get('symbol', '')) == desired_expiry]
+        if same_expiry:
+            instruments = same_expiry
 
     instruments.sort(key=lambda inst: expiry_from_symbol(inst.get('symbol', '')))
     first_expiry = expiry_from_symbol(instruments[0].get('symbol', ''))
@@ -380,6 +425,9 @@ def main():
         table = tabulate(rows, headers=headers, tablefmt="plain")
         lines.extend(table.splitlines())
         print_and_write(lines)
+        token, chat_id = get_telegram_credentials(cfg)
+        send_telegram_document(trade_log, token, chat_id,
+                               caption=f"{side} {qty} {symbol}")
     except Exception:
         tb=traceback.format_exc()
         logger.error("Fatal:\n%s",tb)

@@ -6,5 +6,7 @@
   "risk_usd": 2.20,
   "auto_trade": true,
   "api_key": "4LsBsDgCxjO02MQcSY",
-  "api_secret": "M40Sgh3yQKMywQMFXzR6sZmd6b7vhLeiiQvI"
+  "api_secret": "M40Sgh3yQKMywQMFXzR6sZmd6b7vhLeiiQvI",
+  "telegram_token": "YOUR_BOT_TOKEN",
+  "telegram_chat_id": "123456"
 }
