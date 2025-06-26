@@ -336,6 +336,28 @@ class BybitOptionsTrader:
         data = self._send_request("GET", "/v5/order/realtime", "", q)
         return data.get("result", {}).get("list", [])
 
+    def wait_for_order_fill(self, symbol, order_id, timeout=60, poll_interval=2):
+        """Wait until an order is filled and return its trades.
+
+        This polls :func:`get_trade_history` and :func:`get_order_detail` until
+        executions are found or the timeout elapses. It is useful for limit
+        orders that may not fill immediately.  The ``timeout`` and
+        ``poll_interval`` values are in seconds.
+        """
+        start = time.time()
+        while time.time() - start < timeout:
+            trades = self.get_trade_history(symbol, order_id)
+            if trades:
+                return trades
+            details = self.get_order_detail(symbol, order_id)
+            status = details[0].get("orderStatus") if details else ""
+            if status in {"Filled", "PartiallyFilled"}:
+                trades = self.get_trade_history(symbol, order_id)
+                if trades:
+                    return trades
+            time.sleep(poll_interval)
+        return []
+
     def place_and_log(self, symbol, side, qty, entry_price, tif):
         """Place entry and exit orders and log the resulting trades."""
         # Place entry
@@ -348,6 +370,8 @@ class BybitOptionsTrader:
             trades = self.get_trade_history(symbol, oid)
             if trades:
                 break
+        if not trades:
+            trades = self.wait_for_order_fill(symbol, oid)
 
         # Always fetch order details as fallback for avgPrice
         order_info = self.get_order_detail(symbol, oid)
@@ -361,6 +385,9 @@ class BybitOptionsTrader:
             if order:
                 f.write(json.dumps({"order": order}, indent=2) + "\n")
         logger.info("Trade log saved to %s", trade_log)
+        if not trades:
+            logger.info("Order not filled; skipping exit order")
+            return trades, trade_log
 
         # Determine entry price for exit calculation
         if not entry_price:
