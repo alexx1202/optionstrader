@@ -578,14 +578,20 @@ def export_recent_trade_history(trader, days=7):
         print("No recent trades found.")
         return
 
-    balance = trader.get_wallet_balance("USDT")
+    final_balance = trader.get_wallet_balance("USDT")
     path = os.path.join(script_dir, "recent_trades.csv")
     base_fields = sorted(trades[0].keys())
     extra = ["netFee", "netPnl", "localTime", "balance"]
+
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=base_fields + extra)
         writer.writeheader()
-        for t in trades:
+
+        # Sort trades chronologically so balances can be calculated in order
+        trades_sorted = sorted(trades, key=lambda x: int(x.get("execTime", 0)))
+
+        processed = []
+        for t in trades_sorted:
             row = dict(t)
             # net fees
             try:
@@ -612,11 +618,17 @@ def export_recent_trade_history(trader, days=7):
                 except Exception:
                     pnl = 0.0
             row["netPnl"] = pnl
+            processed.append((row, pnl))
+
+        starting_balance = final_balance - sum(p for _, p in processed)
+        running_balance = starting_balance
+
+        for row, pnl in processed:
             # time conversion
             ts = None
             for tf in ("execTime", "createdTime", "updatedTime", "tradeTime"):
-                if tf in t and t[tf] not in (None, ""):
-                    ts = t[tf]
+                if tf in row and row[tf] not in (None, ""):
+                    ts = row[tf]
                     break
             if ts is not None:
                 try:
@@ -628,7 +640,9 @@ def export_recent_trade_history(trader, days=7):
                     row["localTime"] = ""
             else:
                 row["localTime"] = ""
-            row["balance"] = balance
+
+            running_balance += pnl
+            row["balance"] = running_balance
             writer.writerow(row)
     print(f"Saved {len(trades)} trades to {path}")
 
