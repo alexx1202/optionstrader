@@ -19,6 +19,7 @@ import traceback
 import uuid
 from datetime import datetime, timezone
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 import hmac
 import hashlib
@@ -569,18 +570,56 @@ def adjust_demo_balance(path):
 
 
 def export_recent_trade_history(trader, days=7):
-    """Save trades from the last ``days`` days to a CSV file."""
+    """Save trades from the last ``days`` days to a CSV file with extra info."""
     end = int(datetime.now(timezone.utc).timestamp() * 1000)
     start = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
     trades = trader.list_trade_history(start, end)
     if not trades:
         print("No recent trades found.")
         return
+
+    balance = trader.get_wallet_balance("USDT")
     path = os.path.join(script_dir, "recent_trades.csv")
+    base_fields = sorted(trades[0].keys())
+    extra = ["netFee", "netPnl", "localTime", "balance"]
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=sorted(trades[0].keys()))
+        writer = csv.DictWriter(csvfile, fieldnames=base_fields + extra)
         writer.writeheader()
-        writer.writerows(trades)
+        for t in trades:
+            row = dict(t)
+            # net fees
+            try:
+                row["netFee"] = float(t.get("execFee", 0))
+            except (TypeError, ValueError):
+                row["netFee"] = 0.0
+            # net pnl
+            pnl = 0.0
+            for pf in ("closedPnl", "realisedPnl", "execPnl"):
+                if pf in t and t[pf] not in (None, ""):
+                    try:
+                        pnl = float(t[pf])
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            row["netPnl"] = pnl
+            # time conversion
+            ts = None
+            for tf in ("execTime", "createdTime", "updatedTime", "tradeTime"):
+                if tf in t and t[tf] not in (None, ""):
+                    ts = t[tf]
+                    break
+            if ts is not None:
+                try:
+                    ts_int = int(ts)
+                    dt = datetime.fromtimestamp(ts_int / 1000, timezone.utc)
+                    dt = dt.astimezone(ZoneInfo("Australia/Brisbane"))
+                    row["localTime"] = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    row["localTime"] = ""
+            else:
+                row["localTime"] = ""
+            row["balance"] = balance
+            writer.writerow(row)
     print(f"Saved {len(trades)} trades to {path}")
 
 
