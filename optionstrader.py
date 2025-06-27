@@ -358,7 +358,42 @@ class BybitOptionsTrader:
             time.sleep(poll_interval)
         return []
 
-    def place_and_log(self, symbol, side, qty, entry_price, tif):
+    def get_open_orders(self, symbol=None):
+        """Return a list of open option orders."""
+        q = "category=option"
+        if symbol:
+            q += f"&symbol={symbol}"
+        data = self._send_request("GET", "/v5/order/realtime", "", q)
+        orders = data.get("result", {}).get("list", [])
+        return [o for o in orders if o.get("orderStatus") not in {"Filled", "Cancelled"}]
+
+    def get_positions(self, symbol=None):
+        """Return a list of current option positions."""
+        q = "category=option"
+        if symbol:
+            q += f"&symbol={symbol}"
+        data = self._send_request("GET", "/v5/position/list", "", q)
+        return data.get("result", {}).get("list", [])
+
+    def cancel_all_orders(self):
+        """Cancel all open option orders."""
+        body = {"category": "option"}
+        self._send_request("POST", "/v5/order/cancel-all", body)
+
+    def close_position(self, symbol, side, qty):
+        """Close a position using a market order."""
+        self.place_order(symbol, side, qty, None, "GTC", True)
+
+    def amend_order(self, order_id, price=None, qty=None):
+        """Amend price and/or quantity of an open order."""
+        body = {"category": "option", "orderId": order_id}
+        if price is not None:
+            body["price"] = str(price)
+        if qty is not None:
+            body["qty"] = str(qty)
+        self._send_request("POST", "/v5/order/amend", body)
+
+def place_and_log(self, symbol, side, qty, entry_price, tif):
         """Place entry and exit orders and log the resulting trades."""
         # Place entry
         result = self.place_order(symbol, side, qty, entry_price, tif, False)
@@ -407,59 +442,146 @@ class BybitOptionsTrader:
         self.place_order(symbol, exit_side, qty, target, tif, True)
         return trades, trade_log
 
-def main():
-    """Execute a single options trade and output Greek exposures."""
-    parser = argparse.ArgumentParser(description="Execute trade and fetch Greeks.")
-    parser.add_argument("order_file", help="Path to JSON config.")
-    args = parser.parse_args()
-    try:
-        ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-        cfg = load_trade_config(args.order_file)
-        symbol, side, qty = cfg["symbol"], cfg["side"], cfg["quantity"]
-        entry_price = cfg.get("limit_price")
-        key, secret = get_api_credentials(cfg)
-        if not key or not secret:
-            raise RuntimeError(
-                "API credentials not provided. Set BYBIT_API_KEY and BYBIT_API_SECRET "
-                "environment variables or include api_key/api_secret in the config file."
-            )
-        trader = BybitOptionsTrader(key, secret, BASE_URL)
-        balance = trader.get_wallet_balance()
-        # Prepare output
-        lines = [f"Timestamp: {ts}", f"Balance: {balance:.4f} USDT"]
-        if balance < MIN_BALANCE_THRESHOLD:
-            lines.append("⚠️ Insufficient balance => abort")
-            print_and_write(lines)
-            sys.exit(1)
-        order_desc = 'Market' if not entry_price else entry_price
-        lines.append(f"Placing {side} {qty} {symbol} @ {order_desc}")
-        _trades, trade_log = trader.place_and_log(symbol, side, qty, entry_price, "GTC")
-        lines.append(f"Trade log: {trade_log}")
-        # Fetch ticker and Greeks
-        tick = fetch_option_ticker(symbol)
-        lines.append("\nTicker Data:")
-        for k,v in sorted(tick.items()):
-            lines.append(f"  {k}: {v}")
-        # Greeks table
-        greeks = {k: float(tick[k]) for k in ('delta','gamma','vega','theta') if k in tick}
-        mult = 1 if side.lower()=='buy' else -1
-        headers = ['Greek', 'Per-Contract', 'Qty', 'Exposure']
-        rows = []
-        for name, per in greeks.items():
-            exp = per * qty * mult
-            rows.append([name.capitalize(), f"{per:.8f}", str(qty), f"{exp:.8f}"])
-        lines.append("\nGreek Exposures:")
-        table = tabulate(rows, headers=headers, tablefmt="plain")
-        lines.extend(table.splitlines())
+def execute_trade(order_file):
+    """Execute trade specified by ``order_file`` and print greek exposures."""
+    ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    cfg = load_trade_config(order_file)
+    symbol, side, qty = cfg["symbol"], cfg["side"], cfg["quantity"]
+    entry_price = cfg.get("limit_price")
+    key, secret = get_api_credentials(cfg)
+    if not key or not secret:
+        raise RuntimeError(
+            "API credentials not provided. Set BYBIT_API_KEY and BYBIT_API_SECRET "
+            "environment variables or include api_key/api_secret in the config file."
+        )
+    trader = BybitOptionsTrader(key, secret, BASE_URL)
+    balance = trader.get_wallet_balance()
+    lines = [f"Timestamp: {ts}", f"Balance: {balance:.4f} USDT"]
+    if balance < MIN_BALANCE_THRESHOLD:
+        lines.append("⚠️ Insufficient balance => abort")
         print_and_write(lines)
-        token, chat_id = get_telegram_credentials(cfg)
-        send_telegram_document(trade_log, token, chat_id,
-                               caption=f"{side} {qty} {symbol}")
-    except Exception:
-        tb=traceback.format_exc()
-        logger.error("Fatal:\n%s",tb)
-        print(tb)
-        sys.exit(1)
+        return
+    order_desc = 'Market' if not entry_price else entry_price
+    lines.append(f"Placing {side} {qty} {symbol} @ {order_desc}")
+    _trades, trade_log = trader.place_and_log(symbol, side, qty, entry_price, "GTC")
+    lines.append(f"Trade log: {trade_log}")
+    tick = fetch_option_ticker(symbol)
+    lines.append("\nTicker Data:")
+    for k, v in sorted(tick.items()):
+        lines.append(f"  {k}: {v}")
+    greeks = {k: float(tick[k]) for k in ('delta','gamma','vega','theta') if k in tick}
+    mult = 1 if side.lower()=='buy' else -1
+    headers = ['Greek', 'Per-Contract', 'Qty', 'Exposure']
+    rows = []
+    for name, per in greeks.items():
+        exp = per * qty * mult
+        rows.append([name.capitalize(), f"{per:.8f}", str(qty), f"{exp:.8f}"])
+    lines.append("\nGreek Exposures:")
+    table = tabulate(rows, headers=headers, tablefmt="plain")
+    lines.extend(table.splitlines())
+    print_and_write(lines)
+    token, chat_id = get_telegram_credentials(cfg)
+    send_telegram_document(trade_log, token, chat_id, caption=f"{side} {qty} {symbol}")
+
+
+def show_open(trader):
+    """Display open option orders and positions."""
+    orders = trader.get_open_orders()
+    positions = trader.get_positions()
+    print("\nOpen Orders:")
+    if not orders:
+        print("  None")
+    for o in orders:
+        print(json.dumps(o, indent=2))
+    print("\nOpen Positions:")
+    if not positions:
+        print("  None")
+    for p in positions:
+        print(json.dumps(p, indent=2))
+
+
+def cancel_all(trader):
+    """Cancel all open orders and close all positions."""
+    trader.cancel_all_orders()
+    for pos in trader.get_positions():
+        qty = abs(float(pos.get("size", 0)))
+        if qty:
+            side = "Sell" if pos.get("side", "Buy").lower() == "buy" else "Buy"
+            trader.close_position(pos.get("symbol"), side, qty)
+    print("All orders cancelled and positions closed.")
+
+
+def edit_open_order(trader):
+    """Prompt for an order id and new values then amend the order."""
+    oid = input("Enter order ID to amend: ").strip()
+    price = input("New price (blank to keep): ").strip()
+    qty = input("New qty (blank to keep): ").strip()
+    price_val = float(price) if price else None
+    qty_val = float(qty) if qty else None
+    trader.amend_order(oid, price_val, qty_val)
+    print("Order amended.")
+
+
+def adjust_demo_balance(path):
+    """Edit the stored demo balance value in the config file."""
+    cfg = load_trade_config(path)
+    bal = cfg.get("demo_balance", 0.0)
+    print(f"Current demo balance: {bal}")
+    new_bal = input("Enter new balance: ").strip()
+    try:
+        cfg["demo_balance"] = float(new_bal)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        print("Demo balance updated.")
+    except ValueError:
+        print("Invalid value; balance unchanged.")
+
+
+def interactive_menu(cfg_path):
+    """Show an interactive menu for common actions."""
+    cfg = load_trade_config(cfg_path)
+    key, secret = get_api_credentials(cfg)
+    trader = BybitOptionsTrader(key, secret, BASE_URL)
+    while True:
+        print("\nSelect an option:")
+        print("1. Place configured trade")
+        print("2. Show open option orders/positions")
+        print("3. Cancel all open orders and positions")
+        print("4. Edit an open order")
+        print("5. Adjust demo account funds")
+        print("0. Exit")
+        choice = input("Choice: ").strip()
+        if choice == "1":
+            execute_trade(cfg_path)
+        elif choice == "2":
+            show_open(trader)
+        elif choice == "3":
+            cancel_all(trader)
+        elif choice == "4":
+            edit_open_order(trader)
+        elif choice == "5":
+            adjust_demo_balance(cfg_path)
+        elif choice == "0":
+            break
+        else:
+            print("Invalid choice.")
+
+def main():
+    """Entry point for CLI execution."""
+    parser = argparse.ArgumentParser(description="Bybit options helper")
+    parser.add_argument(
+        "order_file", nargs="?", default="trade_config.json", help="Path to JSON config."
+    )
+    parser.add_argument(
+        "--no-menu",
+        action="store_true",
+        help="Execute trade immediately without showing the menu",
+    )
+    args = parser.parse_args()
+    if args.no_menu:
+        execute_trade(args.order_file)
+    else:
+        interactive_menu(args.order_file)
 
 if __name__=='__main__':
     ensure_tests_pass()

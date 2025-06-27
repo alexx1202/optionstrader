@@ -8,5 +8,6 @@
   "api_key": "4LsBsDgCxjO02MQcSY",
   "api_secret": "M40Sgh3yQKMywQMFXzR6sZmd6b7vhLeiiQvI",
   "telegram_token": "7659321661:AAGuwYj6Hvt4t7lQhf3yeR2wzxo90GNnxi8",
-  "telegram_chat_id": "7812917757"
+  "telegram_chat_id": "7812917757",
+  "demo_balance": 10000.0
 }
