@@ -378,7 +378,16 @@ class BybitOptionsTrader:
     def cancel_all_orders(self):
         """Cancel all open option orders."""
         body = {"category": "option"}
-        self._send_request("POST", "/v5/order/cancel-all", body)
+        try:
+            self._send_request("POST", "/v5/order/cancel-all", body)
+        except ApiException as exc:
+            # Bybit returns error 110008 when there are no active orders. This
+            # should not abort the cancel-all workflow, so we simply log and
+            # continue when that specific error occurs.
+            if "110008" in str(exc):
+                logger.info("No open orders to cancel")
+            else:
+                raise
 
     def close_position(self, symbol, side, qty):
         """Close a position using a market order."""
