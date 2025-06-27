@@ -593,7 +593,7 @@ def export_recent_trade_history(trader, days=7):
             except (TypeError, ValueError):
                 row["netFee"] = 0.0
             # net pnl
-            pnl = 0.0
+            pnl = None
             for pf in ("closedPnl", "realisedPnl", "execPnl"):
                 if pf in t and t[pf] not in (None, ""):
                     try:
@@ -601,6 +601,16 @@ def export_recent_trade_history(trader, days=7):
                         break
                     except (TypeError, ValueError):
                         pass
+            if pnl is None:
+                # fallback: derive from exec value and fee
+                try:
+                    value = float(t.get("execValue", 0) or 0)
+                    side = str(t.get("side", "")).lower()
+                    sign = 1 if side == "sell" else -1
+                    fee = float(t.get("execFee", 0) or 0)
+                    pnl = sign * value - fee
+                except Exception:
+                    pnl = 0.0
             row["netPnl"] = pnl
             # time conversion
             ts = None
