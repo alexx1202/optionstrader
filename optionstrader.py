@@ -18,12 +18,14 @@ import time
 import traceback
 import uuid
 from datetime import datetime, timezone
+from datetime import timedelta
 from urllib.parse import urlencode
 import hmac
 import hashlib
 
 import requests
 from tabulate import tabulate
+import csv
 
 # === Configuration ===
 API_KEY = os.getenv("BYBIT_API_KEY", "")
@@ -402,6 +404,26 @@ class BybitOptionsTrader:
             body["qty"] = str(qty)
         self._send_request("POST", "/v5/order/amend", body)
 
+    def list_trade_history(self, start_time, end_time=None, limit=50):
+        """Return execution records within a time range."""
+        q = f"category=option&startTime={start_time}"
+        if end_time:
+            q += f"&endTime={end_time}"
+        if limit:
+            q += f"&limit={limit}"
+        trades = []
+        cursor = None
+        while True:
+            query = q
+            if cursor:
+                query += f"&cursor={cursor}"
+            data = self._send_request("GET", "/v5/execution/list", "", query)
+            trades.extend(data.get("result", {}).get("list", []))
+            cursor = data.get("result", {}).get("nextPageCursor")
+            if not cursor:
+                break
+        return trades
+
 def place_and_log(self, symbol, side, qty, entry_price, tif):
         """Place entry and exit orders and log the resulting trades."""
         # Place entry
@@ -546,6 +568,22 @@ def adjust_demo_balance(path):
         print("Invalid value; balance unchanged.")
 
 
+def export_recent_trade_history(trader, days=7):
+    """Save trades from the last ``days`` days to a CSV file."""
+    end = int(datetime.now(timezone.utc).timestamp() * 1000)
+    start = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+    trades = trader.list_trade_history(start, end)
+    if not trades:
+        print("No recent trades found.")
+        return
+    path = os.path.join(script_dir, "recent_trades.csv")
+    with open(path, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=sorted(trades[0].keys()))
+        writer.writeheader()
+        writer.writerows(trades)
+    print(f"Saved {len(trades)} trades to {path}")
+
+
 def interactive_menu(cfg_path):
     """Show an interactive menu for common actions."""
     cfg = load_trade_config(cfg_path)
@@ -558,6 +596,7 @@ def interactive_menu(cfg_path):
         print("3. Cancel all open orders and positions")
         print("4. Edit an open order")
         print("5. Adjust demo account funds")
+        print("6. Export trade history (last 7 days) to CSV")
         print("0. Exit")
         choice = input("Choice: ").strip()
         if choice == "1":
@@ -570,6 +609,8 @@ def interactive_menu(cfg_path):
             edit_open_order(trader)
         elif choice == "5":
             adjust_demo_balance(cfg_path)
+        elif choice == "6":
+            export_recent_trade_history(trader)
         elif choice == "0":
             break
         else:
