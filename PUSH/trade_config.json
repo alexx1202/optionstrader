@@ -1,0 +1,13 @@
+{
+  "symbol": "BTC-30JUN25-107500-P-USDT",
+  "side": "Buy",
+  "quantity": 0.01,
+  "limit_price": 2.21,
+  "risk_usd": 2.41,
+  "auto_trade": false,
+  "api_key": "4LsBsDgCxjO02MQcSY",
+  "api_secret": "M40Sgh3yQKMywQMFXzR6sZmd6b7vhLeiiQvI",
+  "telegram_token": "7659321661:AAGuwYj6Hvt4t7lQhf3yeR2wzxo90GNnxi8",
+  "telegram_chat_id": "7812917757",
+  "demo_balance": 10000.0
+}
