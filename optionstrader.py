@@ -425,7 +425,7 @@ class BybitOptionsTrader:
                 break
         return trades
 
-def place_and_log(self, symbol, side, qty, entry_price, tif):
+    def place_and_log(self, symbol, side, qty, entry_price, tif):
         """Place entry and exit orders and log the resulting trades."""
         # Place entry
         result = self.place_order(symbol, side, qty, entry_price, tif, False)
