@@ -647,6 +647,34 @@ def export_recent_trade_history(trader, days=7):
     print(f"Saved {len(trades)} trades to {path}")
 
 
+def set_profit_targets(trader, multiplier=2):
+    """Place reduce-only limit orders for open long positions.
+
+    A limit order is submitted for each open ``Buy`` position such that the
+    potential profit is at least ``multiplier`` times the premium paid.
+    Fees are ignored when computing the target price.
+    """
+    positions = trader.get_positions()
+    if not positions:
+        print("No open positions found.")
+        return
+    for pos in positions:
+        qty = abs(float(pos.get("size", 0)))
+        if qty <= 0:
+            continue
+        side = str(pos.get("side", "")).lower()
+        if side != "buy":
+            # Skipping shorts because profit is collected upfront
+            continue
+        symbol = pos.get("symbol")
+        avg_price = float(pos.get("avgPrice", 0))
+        if not symbol or not avg_price:
+            continue
+        target = avg_price * (multiplier + 1)
+        trader.place_order(symbol, "Sell", qty, target, "GTC", True)
+        print(f"Placed reduce-only Sell {qty} {symbol} @ {target}")
+
+
 def interactive_menu(cfg_path):
     """Show an interactive menu for common actions."""
     cfg = load_trade_config(cfg_path)
@@ -660,6 +688,7 @@ def interactive_menu(cfg_path):
         print("4. Edit an open order")
         print("5. Adjust demo account funds")
         print("6. Export trade history (last 7 days) to CSV")
+        print("7. Place reduce-only exits for open positions")
         print("0. Exit")
         choice = input("Choice: ").strip()
         if choice == "1":
@@ -674,6 +703,8 @@ def interactive_menu(cfg_path):
             adjust_demo_balance(cfg_path)
         elif choice == "6":
             export_recent_trade_history(trader)
+        elif choice == "7":
+            set_profit_targets(trader)
         elif choice == "0":
             break
         else:
