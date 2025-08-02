@@ -406,23 +406,49 @@ class BybitOptionsTrader:
         self._send_request("POST", "/v5/order/amend", body)
 
     def list_trade_history(self, start_time, end_time=None, limit=50):
-        """Return execution records within a time range."""
-        q = f"category=option&startTime={start_time}"
-        if end_time:
-            q += f"&endTime={end_time}"
-        if limit:
-            q += f"&limit={limit}"
+        """Return execution records within a time range.
+
+        The Bybit API allows querying at most seven days of history per
+        request. To fetch a longer span, this method slices the desired
+        period into week-long chunks and stitches the results together. The
+        caller can therefore request months of data (or even everything by
+        passing ``start_time=0``) without worrying about the 7‑day rule.
+        """
+
+        if end_time is None:
+            end_time = int(time.time() * 1000)
+
+        max_range = 7 * 24 * 60 * 60 * 1000  # seven days in milliseconds
         trades = []
-        cursor = None
-        while True:
-            query = q
-            if cursor:
-                query += f"&cursor={cursor}"
-            data = self._send_request("GET", "/v5/execution/list", "", query)
-            trades.extend(data.get("result", {}).get("list", []))
-            cursor = data.get("result", {}).get("nextPageCursor")
-            if not cursor:
-                break
+        current_end = end_time
+        empty_runs = 0
+
+        while current_end > start_time and empty_runs < 3:
+            current_start = max(start_time, current_end - max_range)
+            q = f"category=option&startTime={current_start}&endTime={current_end}"
+            if limit:
+                q += f"&limit={limit}"
+
+            cursor = None
+            chunk = []
+            while True:
+                query = q
+                if cursor:
+                    query += f"&cursor={cursor}"
+                data = self._send_request("GET", "/v5/execution/list", "", query)
+                chunk.extend(data.get("result", {}).get("list", []))
+                cursor = data.get("result", {}).get("nextPageCursor")
+                if not cursor:
+                    break
+
+            if chunk:
+                trades.extend(chunk)
+                empty_runs = 0
+            else:
+                empty_runs += 1
+
+            current_end = current_start - 1
+
         return trades
 
     def place_and_log(self, symbol, side, qty, entry_price, tif):
