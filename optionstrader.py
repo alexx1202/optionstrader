@@ -569,17 +569,10 @@ def adjust_demo_balance(path):
         print("Invalid value; balance unchanged.")
 
 
-def export_recent_trade_history(trader, days=7):
-    """Save trades from the last ``days`` days to a CSV file with extra info."""
-    end = int(datetime.now(timezone.utc).timestamp() * 1000)
-    start = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
-    trades = trader.list_trade_history(start, end)
-    if not trades:
-        print("No recent trades found.")
-        return
-
+def _write_trade_history_csv(trader, trades, filename):
+    """Write ``trades`` to ``filename`` adding fees, PnL and balance."""
     final_balance = trader.get_wallet_balance("USDT")
-    path = os.path.join(script_dir, "recent_trades.csv")
+    path = os.path.join(script_dir, filename)
     base_fields = sorted(trades[0].keys())
     extra = ["netFee", "netPnl", "localTime", "balance"]
 
@@ -647,6 +640,28 @@ def export_recent_trade_history(trader, days=7):
     print(f"Saved {len(trades)} trades to {path}")
 
 
+def export_recent_trade_history(trader, days=7):
+    """Save trades from the last ``days`` days to a CSV file with extra info."""
+    end = int(datetime.now(timezone.utc).timestamp() * 1000)
+    start = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+    trades = trader.list_trade_history(start, end)
+    if not trades:
+        print("No recent trades found.")
+        return
+    _write_trade_history_csv(trader, trades, "recent_trades.csv")
+
+
+def export_all_trade_history(trader):
+    """Save all available trades up to now to a CSV file."""
+    end = int(datetime.now(timezone.utc).timestamp() * 1000)
+    start = 0
+    trades = trader.list_trade_history(start, end)
+    if not trades:
+        print("No trades found.")
+        return
+    _write_trade_history_csv(trader, trades, "all_trades.csv")
+
+
 def set_profit_targets(trader, multiplier=2):
     """Place reduce-only limit orders for open long positions.
 
@@ -688,7 +703,8 @@ def interactive_menu(cfg_path):
         print("4. Edit an open order")
         print("5. Adjust demo account funds")
         print("6. Export trade history (last 7 days) to CSV")
-        print("7. Place reduce-only exits for open positions")
+        print("7. Export all trade history to CSV")
+        print("8. Place reduce-only exits for open positions")
         print("0. Exit")
         choice = input("Choice: ").strip()
         if choice == "1":
@@ -704,6 +720,8 @@ def interactive_menu(cfg_path):
         elif choice == "6":
             export_recent_trade_history(trader)
         elif choice == "7":
+            export_all_trade_history(trader)
+        elif choice == "8":
             set_profit_targets(trader)
         elif choice == "0":
             break
