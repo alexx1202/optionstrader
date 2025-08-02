@@ -81,11 +81,16 @@ def trade():
         try:
             with open("trade_config.json", encoding="utf-8") as f:
                 cfg = json.load(f)
-            return cfg.get("api_key", ""), cfg.get("api_secret", "")
+            return (
+                cfg.get("api_key", ""),
+                cfg.get("api_secret", ""),
+                cfg.get("telegram_token", ""),
+                cfg.get("telegram_chat_id", ""),
+            )
         except Exception:
-            return "", ""
+            return "", "", "", ""
 
-    api_key, api_secret = _load_defaults()
+    api_key, api_secret, telegram_token, telegram_chat_id = _load_defaults()
     balance = 0.0
     if api_key and api_secret:
         temp_trader = optionstrader.BybitOptionsTrader(api_key, api_secret, optionstrader.BASE_URL)
@@ -104,8 +109,8 @@ def trade():
         <tr><td>Auto Trade</td><td><input type='checkbox' name='auto_trade'></td></tr>
         <tr><td>API Key</td><td><input name='api_key' value='{{api_key}}'></td></tr>
         <tr><td>API Secret</td><td><input name='api_secret' value='{{api_secret}}'></td></tr>
-        <tr><td>Telegram Token</td><td><input name='telegram_token'></td></tr>
-        <tr><td>Telegram Chat ID</td><td><input name='telegram_chat_id'></td></tr>
+        <tr><td>Telegram Token</td><td><input name='telegram_token' value='{{telegram_token}}'></td></tr>
+        <tr><td>Telegram Chat ID</td><td><input name='telegram_chat_id' value='{{telegram_chat_id}}'></td></tr>
         </table>
         <button type='submit'>Submit Trade</button>
         </form>
@@ -114,6 +119,8 @@ def trade():
         balance=balance,
         api_key=api_key,
         api_secret=api_secret,
+        telegram_token=telegram_token,
+        telegram_chat_id=telegram_chat_id,
     )
 
 
