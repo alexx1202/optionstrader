@@ -474,17 +474,16 @@ class BybitOptionsTrader:
         self.place_order(symbol, exit_side, qty, target, tif, True)
         return trades, trade_log
 
-def execute_trade(order_file):
-    """Execute trade specified by ``order_file`` and print greek exposures."""
+def execute_trade_from_cfg(cfg):
+    """Execute trade using a configuration dictionary ``cfg``."""
     ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    cfg = load_trade_config(order_file)
     symbol, side, qty = cfg["symbol"], cfg["side"], cfg["quantity"]
     entry_price = cfg.get("limit_price")
     key, secret = get_api_credentials(cfg)
     if not key or not secret:
         raise RuntimeError(
             "API credentials not provided. Set BYBIT_API_KEY and BYBIT_API_SECRET "
-            "environment variables or include api_key/api_secret in the config file."
+            "environment variables or include api_key/api_secret in the config." 
         )
     trader = BybitOptionsTrader(key, secret, BASE_URL)
     balance = trader.get_wallet_balance()
@@ -502,7 +501,7 @@ def execute_trade(order_file):
     for k, v in sorted(tick.items()):
         lines.append(f"  {k}: {v}")
     greeks = {k: float(tick[k]) for k in ('delta','gamma','vega','theta') if k in tick}
-    mult = 1 if side.lower()=='buy' else -1
+    mult = 1 if side.lower() == 'buy' else -1
     headers = ['Greek', 'Per-Contract', 'Qty', 'Exposure']
     rows = []
     for name, per in greeks.items():
@@ -514,6 +513,12 @@ def execute_trade(order_file):
     print_and_write(lines)
     token, chat_id = get_telegram_credentials(cfg)
     send_telegram_document(trade_log, token, chat_id, caption=f"{side} {qty} {symbol}")
+
+
+def execute_trade(order_file):
+    """Execute trade specified by ``order_file`` and print greek exposures."""
+    cfg = load_trade_config(order_file)
+    execute_trade_from_cfg(cfg)
 
 
 def show_open(trader):
@@ -732,7 +737,10 @@ def main():
     """Entry point for CLI execution."""
     parser = argparse.ArgumentParser(description="Bybit options helper")
     parser.add_argument(
-        "order_file", nargs="?", default="trade_config.json", help="Path to JSON config."
+        "order_file",
+        nargs="?",
+        default="trade_config.json",
+        help="Path to JSON config (used only with --no-menu)",
     )
     parser.add_argument(
         "--no-menu",
@@ -743,7 +751,8 @@ def main():
     if args.no_menu:
         execute_trade(args.order_file)
     else:
-        interactive_menu(args.order_file)
+        import web_menu
+        web_menu.start()
 
 if __name__=='__main__':
     ensure_tests_pass()
