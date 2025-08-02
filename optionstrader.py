@@ -660,7 +660,11 @@ def export_all_trade_history(trader):
     """Save all available trades up to now to a CSV file."""
     end = int(datetime.now(timezone.utc).timestamp() * 1000)
     start = 0
-    trades = trader.list_trade_history(start, end)
+    try:
+        trades = trader.list_trade_history(start, end)
+    except ApiException as exc:
+        print(f"Failed to retrieve trade history: {exc}")
+        return
     if not trades:
         print("No trades found.")
         return
