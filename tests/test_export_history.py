@@ -47,3 +47,18 @@ def test_export_all_trade_history(tmp_path, monkeypatch):
     expected_time = expected_time.astimezone(ZoneInfo("Australia/Brisbane"))
     assert row["localTime"] == expected_time.strftime("%Y-%m-%d %H:%M:%S")
     assert abs(float(row["balance"]) - 100.0) < 1e-9
+
+
+def test_export_all_trade_history_handles_error(tmp_path, monkeypatch, capsys):
+    class FailingTrader:
+        def list_trade_history(self, start, end):
+            raise optionstrader.ApiException("boom")
+        def get_wallet_balance(self, coin="USDT"):
+            return 0.0
+
+    monkeypatch.setattr(optionstrader, "script_dir", str(tmp_path))
+    trader = FailingTrader()
+    optionstrader.export_all_trade_history(trader)
+    captured = capsys.readouterr()
+    assert "Failed to retrieve trade history" in captured.out
+    assert not (tmp_path / "all_trades.csv").exists()
