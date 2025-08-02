@@ -189,6 +189,43 @@ def _parse_expiry(token):
     except ValueError:
         return None
 
+def build_option_symbol(base, strike, option_type, expiry, quote):
+    """Return a Bybit option symbol built from individual parts.
+
+    Parameters are case-insensitive. ``expiry`` should be given as ``day/month/year``
+    (for example ``7/6/25`` for 7 June 2025). The function converts the pieces
+    into the ``BASE-DAYMONYY-STRIKE-C/P-QUOTE`` format required by Bybit.
+    """
+    base = str(base or "").upper()
+    quote = str(quote or "").upper()
+    opt = str(option_type or "").upper()
+    if opt:
+        opt = opt[0]  # Use only first letter: 'C' or 'P'
+    # Normalize strike to an integer-like string
+    try:
+        strike_val = int(float(strike))
+    except (ValueError, TypeError):
+        strike_val = 0
+    strike_str = str(strike_val)
+
+    # Parse expiry in day/month/year form
+    exp = str(expiry or "").replace("-", "/").strip()
+    try:
+        d, m, y = exp.split("/")
+        day = int(d)
+        month = int(m)
+        year = int(y)
+    except ValueError:
+        day = month = 1
+        year = 1970
+    if year < 100:
+        year += 2000
+    dt = datetime(year, month, day)
+    month_token = dt.strftime("%b").upper()
+    expiry_token = f"{day}{month_token}{str(year)[2:]}"
+
+    return f"{base}-{expiry_token}-{strike_str}-{opt}-{quote}"
+
 def compute_order_qty(risk_usd, price, min_qty=MIN_ORDER_QTY):
     """Return the order quantity rounded to the exchange increment."""
     if not risk_usd or not price:

@@ -99,12 +99,21 @@ def trade():
         risk_percent = float(form.get("risk_percent", 0) or 0)
         risk_usd = balance * risk_percent / 100
         qty = float(form.get("quantity", 0) or 0)
+        symbol = form.get("symbol", "")
+        if not symbol:
+            symbol = optionstrader.build_option_symbol(
+                form.get("base", ""),
+                form.get("strike", ""),
+                form.get("option_type", ""),
+                form.get("expiry", ""),
+                form.get("quote", "USDT"),
+            )
         if qty <= 0 and risk_usd > 0:
-            tick = optionstrader.fetch_option_ticker(form.get("symbol", ""))
+            tick = optionstrader.fetch_option_ticker(symbol)
             price = float(tick.get("markPrice", 0) or 0)
             qty = optionstrader.compute_order_qty(risk_usd, price)
         cfg = {
-            "symbol": form.get("symbol", ""),
+            "symbol": symbol,
             "side": form.get("side", "Buy"),
             "quantity": qty,
             "limit_price": float(form["limit_price"]) if form.get("limit_price") else None,
@@ -144,7 +153,11 @@ def trade():
         <p>Current Balance: {{balance}} USDT</p>
         <form method='post'>
         <table>
-        <tr><td>Symbol</td><td><input name='symbol'></td></tr>
+        <tr><td>Base</td><td><input name='base'></td></tr>
+        <tr><td>Strike</td><td><input name='strike'></td></tr>
+        <tr><td>Call/Put</td><td><input name='option_type'></td></tr>
+        <tr><td>Expiry (D/M/YY)</td><td><input name='expiry'></td></tr>
+        <tr><td>Quote</td><td><input name='quote' value='USDT'></td></tr>
         <tr><td>Side</td><td><input name='side' value='Buy'></td></tr>
         <tr><td>Quantity</td><td><input name='quantity' value='0'></td></tr>
         <tr><td>Limit Price</td><td><input name='limit_price'></td></tr>
