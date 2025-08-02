@@ -13,6 +13,49 @@ import optionstrader
 app = Flask(__name__)
 trader = None
 
+# Simple CSS used on every page to give a dark theme and vertical buttons
+STYLE = """
+<style>
+    body { background-color: #121212; color: #fff; font-family: Arial, sans-serif; }
+    button { display: block; margin: 10px 0; background-color: #333; color: #fff;
+             padding: 8px 12px; border: 1px solid #555; }
+    input { background-color: #222; color: #fff; border: 1px solid #555; }
+    table td { padding: 4px; }
+    a { color: #80b3ff; }
+</style>
+"""
+
+
+def _page(content: str) -> str:
+    """Wrap ``content`` with HTML that applies ``STYLE``."""
+    return f"<!doctype html><html><head>{STYLE}</head><body>{content}</body></html>"
+
+
+def _get_trader():
+    """Return a ``BybitOptionsTrader`` instance using saved credentials.
+
+    The web menu originally required the user to create a trade before any
+    other button worked because the ``trader`` object was only created when the
+    trade form was submitted.  This helper tries to build the trader from the
+    API key and secret stored in ``trade_config.json`` so actions like "Show" or
+    "Cancel" can function immediately after launching the app.
+    """
+
+    global trader
+    if trader is None:
+        try:
+            with open("trade_config.json", encoding="utf-8") as f:
+                cfg = json.load(f)
+            key = cfg.get("api_key", "")
+            secret = cfg.get("api_secret", "")
+            if key and secret:
+                trader = optionstrader.BybitOptionsTrader(
+                    key, secret, optionstrader.BASE_URL
+                )
+        except Exception:
+            pass
+    return trader
+
 
 def _open_edge(url: str) -> None:
     """Open ``url`` in Microsoft Edge if available, else the default browser."""
@@ -30,7 +73,7 @@ def _open_edge(url: str) -> None:
 
 @app.route("/")
 def index():
-    return render_template_string(
+    return _page(
         """
         <h1>Options Trader</h1>
         <button onclick=\"location.href='/trade'\">Create Trade</button>
@@ -75,7 +118,7 @@ def trade():
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             optionstrader.execute_trade_from_cfg(cfg)
-        return "<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>"
+        return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
     # GET request: load defaults and show form
     def _load_defaults():
         try:
@@ -95,7 +138,7 @@ def trade():
     if api_key and api_secret:
         temp_trader = optionstrader.BybitOptionsTrader(api_key, api_secret, optionstrader.BASE_URL)
         balance = temp_trader.get_wallet_balance()
-    return render_template_string(
+    html = render_template_string(
         """
         <h2>Create Trade</h2>
         <p>Current Balance: {{balance}} USDT</p>
@@ -122,41 +165,45 @@ def trade():
         telegram_token=telegram_token,
         telegram_chat_id=telegram_chat_id,
     )
+    return _page(html)
 
 
 @app.route("/show")
 def show():
-    if trader is None:
-        return "No trader available. Place a trade first.<br><a href='/'>Back</a>"
+    t = _get_trader()
+    if t is None:
+        return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        optionstrader.show_open(trader)
-    return "<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>"
+        optionstrader.show_open(t)
+    return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
 
 
 @app.route("/cancel")
 def cancel():
-    if trader is None:
-        return "No trader available. Place a trade first.<br><a href='/'>Back</a>"
+    t = _get_trader()
+    if t is None:
+        return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        optionstrader.cancel_all(trader)
-    return "<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>"
+        optionstrader.cancel_all(t)
+    return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
 
 
 @app.route("/edit", methods=["GET", "POST"])
 def edit():
-    if trader is None:
-        return "No trader available. Place a trade first.<br><a href='/'>Back</a>"
+    t = _get_trader()
+    if t is None:
+        return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
     if request.method == "POST":
         oid = request.form.get("order_id", "")
         price = request.form.get("price")
         qty = request.form.get("qty")
         price_val = float(price) if price else None
         qty_val = float(qty) if qty else None
-        trader.amend_order(oid, price_val, qty_val)
-        return "Order amended.<br><a href='/'>Back</a>"
-    return render_template_string(
+        t.amend_order(oid, price_val, qty_val)
+        return _page("Order amended.<br><a href='/'>Back</a>")
+    html = render_template_string(
         """
         <h2>Edit Open Order</h2>
         <form method='post'>
@@ -168,36 +215,40 @@ def edit():
         <a href='/'>Back</a>
         """
     )
+    return _page(html)
 
 
 @app.route("/export_recent")
 def export_recent():
-    if trader is None:
-        return "No trader available. Place a trade first.<br><a href='/'>Back</a>"
+    t = _get_trader()
+    if t is None:
+        return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        optionstrader.export_recent_trade_history(trader)
-    return "<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>"
+        optionstrader.export_recent_trade_history(t)
+    return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
 
 
 @app.route("/export_all")
 def export_all():
-    if trader is None:
-        return "No trader available. Place a trade first.<br><a href='/'>Back</a>"
+    t = _get_trader()
+    if t is None:
+        return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        optionstrader.export_all_trade_history(trader)
-    return "<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>"
+        optionstrader.export_all_trade_history(t)
+    return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
 
 
 @app.route("/reduce")
 def reduce():
-    if trader is None:
-        return "No trader available. Place a trade first.<br><a href='/'>Back</a>"
+    t = _get_trader()
+    if t is None:
+        return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        optionstrader.set_profit_targets(trader)
-    return "<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>"
+        optionstrader.set_profit_targets(t)
+    return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
 
 
 def start():
