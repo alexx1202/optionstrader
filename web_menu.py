@@ -82,6 +82,8 @@ def index():
         <button onclick=\"location.href='/edit'\">Edit Open Order</button>
         <button onclick=\"location.href='/export_recent'\">Export Trade History (7 days)</button>
         <button onclick=\"location.href='/export_all'\">Export All Trade History</button>
+        <button onclick=\"location.href='/delivery_recent'\">Export Delivery History (7 days)</button>
+        <button onclick=\"location.href='/delivery_all'\">Export All Delivery History</button>
         <button onclick=\"location.href='/reduce'\">Place Reduce-Only Exits</button>
         """
     )
@@ -250,6 +252,28 @@ def export_all():
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         optionstrader.export_all_trade_history(t)
+    return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
+
+
+@app.route("/delivery_recent")
+def delivery_recent():
+    t = _get_trader()
+    if t is None:
+        return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        optionstrader.export_recent_delivery_history(t)
+    return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
+
+
+@app.route("/delivery_all")
+def delivery_all():
+    t = _get_trader()
+    if t is None:
+        return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        optionstrader.export_all_delivery_history(t)
     return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
 
 

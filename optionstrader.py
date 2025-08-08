@@ -490,6 +490,53 @@ class BybitOptionsTrader:
 
         return trades
 
+    def list_delivery_history(self, start_time, end_time=None, limit=50):
+        """Return delivery records within a time range.
+
+        Bybit restricts delivery queries to seven-day windows. This method
+        automatically slices the requested period into week-long chunks and
+        combines the results so callers can fetch months of history by passing
+        ``start_time=0``.
+        """
+
+        if end_time is None:
+            end_time = int(time.time() * 1000)
+
+        max_range = 7 * 24 * 60 * 60 * 1000  # seven days in milliseconds
+        deliveries = []
+        current_end = end_time
+        empty_runs = 0
+
+        while current_end > start_time and empty_runs < 3:
+            current_start = max(start_time, current_end - max_range)
+            q = f"category=option&startTime={current_start}&endTime={current_end}"
+            if limit:
+                q += f"&limit={limit}"
+
+            cursor = None
+            chunk = []
+            while True:
+                query = q
+                if cursor:
+                    query += f"&cursor={cursor}"
+                data = self._send_request(
+                    "GET", "/v5/asset/delivery-record", "", query
+                )
+                chunk.extend(data.get("result", {}).get("list", []))
+                cursor = data.get("result", {}).get("nextPageCursor")
+                if not cursor:
+                    break
+
+            if chunk:
+                deliveries.extend(chunk)
+                empty_runs = 0
+            else:
+                empty_runs += 1
+
+            current_end = current_start - 1
+
+        return deliveries
+
     def place_and_log(self, symbol, side, qty, entry_price, tif):
         """Place entry and exit orders and log the resulting trades."""
         # Place entry
@@ -734,6 +781,32 @@ def export_all_trade_history(trader):
         print("No trades found.")
         return
     _write_trade_history_csv(trader, trades, "all_trades.csv")
+
+
+def export_recent_delivery_history(trader, days=7):
+    """Save delivery records from the last ``days`` days to a CSV file."""
+    end = int(datetime.now(timezone.utc).timestamp() * 1000)
+    start = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+    deliveries = trader.list_delivery_history(start, end)
+    if not deliveries:
+        print("No recent deliveries found.")
+        return
+    _write_trade_history_csv(trader, deliveries, "recent_deliveries.csv")
+
+
+def export_all_delivery_history(trader):
+    """Save all available delivery records up to now to a CSV file."""
+    end = int(datetime.now(timezone.utc).timestamp() * 1000)
+    start = 0
+    try:
+        deliveries = trader.list_delivery_history(start, end)
+    except ApiException as exc:
+        print(f"Failed to retrieve delivery history: {exc}")
+        return
+    if not deliveries:
+        print("No deliveries found.")
+        return
+    _write_trade_history_csv(trader, deliveries, "all_deliveries.csv")
 
 
 def set_profit_targets(trader, multiplier=2):
