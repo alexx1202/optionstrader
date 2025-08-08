@@ -38,8 +38,10 @@ MIN_BALANCE_THRESHOLD = 10.0
 
 # === File setup ===
 script_dir = os.path.dirname(os.path.abspath(__file__))
-log_file = os.path.join(script_dir, '1.log')
-output_file = os.path.join(script_dir, '1_output.txt')
+# Log runtime details to a clear, descriptive file name
+log_file = os.path.join(script_dir, 'optionstrader.log')
+# Store trade-specific information separately
+output_file = os.path.join(script_dir, 'trade_output.txt')
 
 # === Logging configuration ===
 logger = logging.getLogger('main')
@@ -51,7 +53,7 @@ fh.setFormatter(fmt)
 ch.setFormatter(fmt)
 logger.addHandler(fh)
 logger.addHandler(ch)
-logger.info("Starting 1.py; logs to %s, output to %s", log_file, output_file)
+logger.info("Starting optionstrader.py; logs to %s, output to %s", log_file, output_file)
 
 def ensure_tests_pass():
     """Run pytest and exit if any tests fail."""
