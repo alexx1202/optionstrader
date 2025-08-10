@@ -139,8 +139,18 @@ def trade():
         form = request.form
         api_key = form.get("api_key", "")
         api_secret = form.get("api_secret", "")
-        trader = optionstrader.BybitOptionsTrader(api_key, api_secret, optionstrader.BASE_URL)
+        trader = optionstrader.BybitOptionsTrader(
+            api_key, api_secret, optionstrader.BASE_URL
+        )
         balance = trader.get_wallet_balance()
+        # Fall back to stored demo balance if the API call fails
+        if balance <= 0:
+            try:
+                with open("trade_config.json", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                balance = cfg.get("demo_balance", 0.0)
+            except Exception:
+                balance = 0.0
         risk_percent = float(form.get("risk_percent", 0) or 0)
         risk_usd = balance * risk_percent / 100
         qty = float(form.get("quantity", 0) or 0)
@@ -188,10 +198,22 @@ def trade():
             return "", "", "", ""
 
     api_key, api_secret, telegram_token, telegram_chat_id = _load_defaults()
+    # Load the stored demo balance as the default displayed balance
     balance = 0.0
+    try:
+        with open("trade_config.json", encoding="utf-8") as f:
+            cfg = json.load(f)
+            balance = cfg.get("demo_balance", 0.0)
+    except Exception:
+        pass
     if api_key and api_secret:
-        temp_trader = optionstrader.BybitOptionsTrader(api_key, api_secret, optionstrader.BASE_URL)
-        balance = temp_trader.get_wallet_balance()
+        temp_trader = optionstrader.BybitOptionsTrader(
+            api_key, api_secret, optionstrader.BASE_URL
+        )
+        api_bal = temp_trader.get_wallet_balance()
+        # Only override the demo balance if the API call succeeds
+        if api_bal > 0:
+            balance = api_bal
     html = render_template_string(
         """
         <h2>Create Trade</h2>
