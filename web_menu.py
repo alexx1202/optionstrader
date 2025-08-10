@@ -85,8 +85,51 @@ def index():
         <button onclick=\"location.href='/delivery_recent'\">Export Delivery History (7 days)</button>
         <button onclick=\"location.href='/delivery_all'\">Export All Delivery History</button>
         <button onclick=\"location.href='/reduce'\">Place Reduce-Only Exits</button>
+        <button onclick=\"location.href='/demo_balance'\">Adjust Demo Balance</button>
         """
     )
+
+
+@app.route("/demo_balance", methods=["GET", "POST"])
+def demo_balance():
+    path = "trade_config.json"
+    if request.method == "POST":
+        bal_str = request.form.get("balance", "").strip()
+        try:
+            new_bal = float(bal_str)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                cfg = {}
+            cfg["demo_balance"] = new_bal
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+            return _page(
+                f"Demo balance set to {new_bal} USDT.<br><a href='/'>Back</a>"
+            )
+        except ValueError:
+            return _page("Invalid value; balance unchanged.<br><a href='/'>Back</a>")
+    else:
+        bal = 0.0
+        try:
+            with open(path, encoding="utf-8") as f:
+                cfg = json.load(f)
+                bal = cfg.get("demo_balance", 0.0)
+        except Exception:
+            pass
+        html = render_template_string(
+            """
+            <h2>Adjust Demo Balance</h2>
+            <form method='post'>
+            New Balance: <input name='balance' value='{{bal}}'><br>
+            <button type='submit'>Submit</button>
+            </form>
+            <a href='/'>Back</a>
+            """,
+            bal=bal,
+        )
+        return _page(html)
 
 
 @app.route("/trade", methods=["GET", "POST"])
