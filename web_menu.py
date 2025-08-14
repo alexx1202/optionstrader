@@ -109,12 +109,8 @@ def trade():
     global trader
     if request.method == "POST":
         form = request.form
-        api_key = form.get("api_key", "")
-        api_secret = form.get("api_secret", "")
-        trader = optionstrader.BybitOptionsTrader(
-            api_key, api_secret, optionstrader.BASE_URL
-        )
-        balance = trader.get_wallet_balance()
+        trader = _get_trader()
+        balance = trader.get_wallet_balance() if trader else optionstrader.DEMO_BALANCE
         # Fall back to stored demo balance if the API call fails
         if balance <= 0:
             balance = optionstrader.DEMO_BALANCE
@@ -141,8 +137,6 @@ def trade():
             "limit_price": float(form["limit_price"]) if form.get("limit_price") else None,
             "risk_usd": risk_usd,
             "auto_trade": bool(form.get("auto_trade")),
-            "api_key": api_key,
-            "api_secret": api_secret,
             "telegram_token": form.get("telegram_token", ""),
             "telegram_chat_id": form.get("telegram_chat_id", ""),
         }
@@ -153,20 +147,16 @@ def trade():
     # GET request: load defaults and show form
     def _load_defaults():
         return (
-            os.getenv("BYBIT_API_KEY", ""),
-            os.getenv("BYBIT_API_SECRET", ""),
             os.getenv("TELEGRAM_TOKEN", ""),
             os.getenv("TELEGRAM_CHAT_ID", ""),
         )
 
-    api_key, api_secret, telegram_token, telegram_chat_id = _load_defaults()
+    telegram_token, telegram_chat_id = _load_defaults()
     # Load the stored demo balance as the default displayed balance
     balance = optionstrader.DEMO_BALANCE
-    if api_key and api_secret:
-        temp_trader = optionstrader.BybitOptionsTrader(
-            api_key, api_secret, optionstrader.BASE_URL
-        )
-        api_bal = temp_trader.get_wallet_balance()
+    t = _get_trader()
+    if t is not None:
+        api_bal = t.get_wallet_balance()
         # Only override the demo balance if the API call succeeds
         if api_bal > 0:
             balance = api_bal
@@ -186,8 +176,6 @@ def trade():
         <tr><td>Limit Price</td><td><input name='limit_price'></td></tr>
         <tr><td>Risk %</td><td><input name='risk_percent' value='0'></td></tr>
         <tr><td>Auto Trade</td><td><input type='checkbox' name='auto_trade'></td></tr>
-        <tr><td>API Key</td><td><input name='api_key' value='{{api_key}}'></td></tr>
-        <tr><td>API Secret</td><td><input name='api_secret' value='{{api_secret}}'></td></tr>
         <tr><td>Telegram Token</td><td><input name='telegram_token' value='{{telegram_token}}'></td></tr>
         <tr><td>Telegram Chat ID</td><td><input name='telegram_chat_id' value='{{telegram_chat_id}}'></td></tr>
         </table>
@@ -196,8 +184,6 @@ def trade():
         <a href='/'>Back</a>
         """,
         balance=balance,
-        api_key=api_key,
-        api_secret=api_secret,
         telegram_token=telegram_token,
         telegram_chat_id=telegram_chat_id,
     )
