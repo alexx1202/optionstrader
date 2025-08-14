@@ -1,14 +1,20 @@
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import optionstrader
 
 def test_load_trade_config_fallback(tmp_path, monkeypatch):
     """load_trade_config should locate the file in the script directory when the working directory doesn't contain it."""
-    monkeypatch.chdir(tmp_path)
-    cfg = optionstrader.load_trade_config('trade_config.json')
-    assert {'symbol', 'side', 'quantity', 'auto_trade', 'risk_usd'}.issubset(cfg)
+    cfg_path = Path(optionstrader.script_dir) / 'trade_config.json'
+    cfg_path.write_text('{"symbol":"S","side":"Buy","quantity":1}', encoding='utf-8')
+    try:
+        monkeypatch.chdir(tmp_path)
+        cfg = optionstrader.load_trade_config('trade_config.json')
+        assert {'symbol', 'side', 'quantity', 'auto_trade', 'risk_usd'}.issubset(cfg)
+    finally:
+        cfg_path.unlink()
 
 def test_get_api_credentials_from_config(tmp_path, monkeypatch):
     path = tmp_path / 'cfg.json'
