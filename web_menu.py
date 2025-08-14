@@ -109,21 +109,12 @@ def trade():
             "limit_price": float(form["limit_price"]) if form.get("limit_price") else None,
             "risk_usd": risk_usd,
             "auto_trade": bool(form.get("auto_trade")),
-            "telegram_token": form.get("telegram_token", ""),
-            "telegram_chat_id": form.get("telegram_chat_id", ""),
         }
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             optionstrader.execute_trade_from_cfg(cfg)
         return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
     # GET request: load defaults and show form
-    def _load_defaults():
-        return (
-            os.getenv("TELEGRAM_TOKEN", ""),
-            os.getenv("TELEGRAM_CHAT_ID", ""),
-        )
-
-    telegram_token, telegram_chat_id = _load_defaults()
     # Load the stored demo balance as the default displayed balance
     balance = optionstrader.DEMO_BALANCE
     t = _get_trader()
@@ -148,16 +139,12 @@ def trade():
         <tr><td>Limit Price</td><td><input name='limit_price'></td></tr>
         <tr><td>Risk %</td><td><input name='risk_percent' value='0'></td></tr>
         <tr><td>Auto Trade</td><td><input type='checkbox' name='auto_trade'></td></tr>
-        <tr><td>Telegram Token</td><td><input name='telegram_token' value='{{telegram_token}}'></td></tr>
-        <tr><td>Telegram Chat ID</td><td><input name='telegram_chat_id' value='{{telegram_chat_id}}'></td></tr>
         </table>
         <button type='submit'>Submit Trade</button>
         </form>
         <a href='/'>Back</a>
         """,
         balance=balance,
-        telegram_token=telegram_token,
-        telegram_chat_id=telegram_chat_id,
     )
     return _page(html)
 
