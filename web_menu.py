@@ -72,36 +72,8 @@ def index():
         <button onclick=\"location.href='/delivery_recent'\">Export Delivery History (7 days)</button>
         <button onclick=\"location.href='/delivery_all'\">Export All Delivery History</button>
         <button onclick=\"location.href='/reduce'\">Place Reduce-Only Exits</button>
-        <button onclick=\"location.href='/demo_balance'\">Adjust Demo Balance</button>
         """
     )
-
-
-@app.route("/demo_balance", methods=["GET", "POST"])
-def demo_balance():
-    if request.method == "POST":
-        bal_str = request.form.get("balance", "").strip()
-        try:
-            optionstrader.DEMO_BALANCE = float(bal_str)
-            return _page(
-                f"Demo balance set to {optionstrader.DEMO_BALANCE} USDT.<br><a href='/'>Back</a>"
-            )
-        except ValueError:
-            return _page("Invalid value; balance unchanged.<br><a href='/'>Back</a>")
-    else:
-        bal = optionstrader.DEMO_BALANCE
-        html = render_template_string(
-            """
-            <h2>Adjust Demo Balance</h2>
-            <form method='post'>
-            New Balance: <input name='balance' value='{{bal}}'><br>
-            <button type='submit'>Submit</button>
-            </form>
-            <a href='/'>Back</a>
-            """,
-            bal=bal,
-        )
-        return _page(html)
 
 
 @app.route("/trade", methods=["GET", "POST"])

@@ -659,18 +659,6 @@ def edit_open_order(trader):
     print("Order amended.")
 
 
-def adjust_demo_balance():
-    """Edit the stored demo balance value kept in memory."""
-    global DEMO_BALANCE
-    print(f"Current demo balance: {DEMO_BALANCE}")
-    new_bal = input("Enter new balance: ").strip()
-    try:
-        DEMO_BALANCE = float(new_bal)
-        print("Demo balance updated.")
-    except ValueError:
-        print("Invalid value; balance unchanged.")
-
-
 def _write_trade_history_csv(trader, trades, filename):
     """Write ``trades`` to ``filename`` adding fees, PnL and balance."""
     final_balance = trader.get_wallet_balance("USDT")
@@ -833,10 +821,9 @@ def interactive_menu(cfg_path):
         print("2. Show open option orders/positions")
         print("3. Cancel all open orders and positions")
         print("4. Edit an open order")
-        print("5. Adjust demo account funds")
-        print("6. Export trade history (last 7 days) to CSV")
-        print("7. Export all trade history to CSV")
-        print("8. Place reduce-only exits for open positions")
+        print("5. Export trade history (last 7 days) to CSV")
+        print("6. Export all trade history to CSV")
+        print("7. Place reduce-only exits for open positions")
         print("0. Exit")
         choice = input("Choice: ").strip()
         if choice == "1":
@@ -848,12 +835,10 @@ def interactive_menu(cfg_path):
         elif choice == "4":
             edit_open_order(trader)
         elif choice == "5":
-            adjust_demo_balance()
-        elif choice == "6":
             export_recent_trade_history(trader)
-        elif choice == "7":
+        elif choice == "6":
             export_all_trade_history(trader)
-        elif choice == "8":
+        elif choice == "7":
             set_profit_targets(trader)
         elif choice == "0":
             break
