@@ -34,6 +34,7 @@ BASE_URL = "https://api-demo.bybit.com"
 RECV_WINDOW = "5000"
 SUB_ACCOUNT_NAME = ""
 MIN_BALANCE_THRESHOLD = 10.0
+DEMO_BALANCE = float(os.getenv("DEMO_BALANCE", 0.0))
 
 # === File setup ===
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -658,16 +659,13 @@ def edit_open_order(trader):
     print("Order amended.")
 
 
-def adjust_demo_balance(path):
-    """Edit the stored demo balance value in the config file."""
-    cfg = load_trade_config(path)
-    bal = cfg.get("demo_balance", 0.0)
-    print(f"Current demo balance: {bal}")
+def adjust_demo_balance():
+    """Edit the stored demo balance value kept in memory."""
+    global DEMO_BALANCE
+    print(f"Current demo balance: {DEMO_BALANCE}")
     new_bal = input("Enter new balance: ").strip()
     try:
-        cfg["demo_balance"] = float(new_bal)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
+        DEMO_BALANCE = float(new_bal)
         print("Demo balance updated.")
     except ValueError:
         print("Invalid value; balance unchanged.")
@@ -850,7 +848,7 @@ def interactive_menu(cfg_path):
         elif choice == "4":
             edit_open_order(trader)
         elif choice == "5":
-            adjust_demo_balance(cfg_path)
+            adjust_demo_balance()
         elif choice == "6":
             export_recent_trade_history(trader)
         elif choice == "7":
@@ -868,7 +866,7 @@ def main():
     parser.add_argument(
         "order_file",
         nargs="?",
-        default="trade_config.json",
+        default="",
         help="Path to JSON config (used only with --no-menu)",
     )
     parser.add_argument(
@@ -878,6 +876,8 @@ def main():
     )
     args = parser.parse_args()
     if args.no_menu:
+        if not args.order_file:
+            raise SystemExit("order_file required with --no-menu")
         execute_trade(args.order_file)
     else:
         import web_menu

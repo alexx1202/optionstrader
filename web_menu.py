@@ -4,7 +4,6 @@ import time
 import contextlib
 import io
 import webbrowser
-import json
 from flask import Flask, request, render_template_string
 
 import optionstrader
@@ -32,28 +31,16 @@ def _page(content: str) -> str:
 
 
 def _get_trader():
-    """Return a ``BybitOptionsTrader`` instance using saved credentials.
-
-    The web menu originally required the user to create a trade before any
-    other button worked because the ``trader`` object was only created when the
-    trade form was submitted.  This helper tries to build the trader from the
-    API key and secret stored in ``trade_config.json`` so actions like "Show" or
-    "Cancel" can function immediately after launching the app.
-    """
+    """Return a ``BybitOptionsTrader`` instance using environment credentials."""
 
     global trader
     if trader is None:
-        try:
-            with open("trade_config.json", encoding="utf-8") as f:
-                cfg = json.load(f)
-            key = cfg.get("api_key", "")
-            secret = cfg.get("api_secret", "")
-            if key and secret:
-                trader = optionstrader.BybitOptionsTrader(
-                    key, secret, optionstrader.BASE_URL
-                )
-        except Exception:
-            pass
+        key = os.getenv("BYBIT_API_KEY", "")
+        secret = os.getenv("BYBIT_API_SECRET", "")
+        if key and secret:
+            trader = optionstrader.BybitOptionsTrader(
+                key, secret, optionstrader.BASE_URL
+            )
     return trader
 
 
@@ -92,32 +79,17 @@ def index():
 
 @app.route("/demo_balance", methods=["GET", "POST"])
 def demo_balance():
-    path = "trade_config.json"
     if request.method == "POST":
         bal_str = request.form.get("balance", "").strip()
         try:
-            new_bal = float(bal_str)
-            try:
-                with open(path, encoding="utf-8") as f:
-                    cfg = json.load(f)
-            except Exception:
-                cfg = {}
-            cfg["demo_balance"] = new_bal
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, indent=2)
+            optionstrader.DEMO_BALANCE = float(bal_str)
             return _page(
-                f"Demo balance set to {new_bal} USDT.<br><a href='/'>Back</a>"
+                f"Demo balance set to {optionstrader.DEMO_BALANCE} USDT.<br><a href='/'>Back</a>"
             )
         except ValueError:
             return _page("Invalid value; balance unchanged.<br><a href='/'>Back</a>")
     else:
-        bal = 0.0
-        try:
-            with open(path, encoding="utf-8") as f:
-                cfg = json.load(f)
-                bal = cfg.get("demo_balance", 0.0)
-        except Exception:
-            pass
+        bal = optionstrader.DEMO_BALANCE
         html = render_template_string(
             """
             <h2>Adjust Demo Balance</h2>
@@ -145,12 +117,7 @@ def trade():
         balance = trader.get_wallet_balance()
         # Fall back to stored demo balance if the API call fails
         if balance <= 0:
-            try:
-                with open("trade_config.json", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                balance = cfg.get("demo_balance", 0.0)
-            except Exception:
-                balance = 0.0
+            balance = optionstrader.DEMO_BALANCE
         risk_percent = float(form.get("risk_percent", 0) or 0)
         risk_usd = balance * risk_percent / 100
         qty = float(form.get("quantity", 0) or 0)
@@ -185,27 +152,16 @@ def trade():
         return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
     # GET request: load defaults and show form
     def _load_defaults():
-        try:
-            with open("trade_config.json", encoding="utf-8") as f:
-                cfg = json.load(f)
-            return (
-                cfg.get("api_key", ""),
-                cfg.get("api_secret", ""),
-                cfg.get("telegram_token", ""),
-                cfg.get("telegram_chat_id", ""),
-            )
-        except Exception:
-            return "", "", "", ""
+        return (
+            os.getenv("BYBIT_API_KEY", ""),
+            os.getenv("BYBIT_API_SECRET", ""),
+            os.getenv("TELEGRAM_TOKEN", ""),
+            os.getenv("TELEGRAM_CHAT_ID", ""),
+        )
 
     api_key, api_secret, telegram_token, telegram_chat_id = _load_defaults()
     # Load the stored demo balance as the default displayed balance
-    balance = 0.0
-    try:
-        with open("trade_config.json", encoding="utf-8") as f:
-            cfg = json.load(f)
-            balance = cfg.get("demo_balance", 0.0)
-    except Exception:
-        pass
+    balance = optionstrader.DEMO_BALANCE
     if api_key and api_secret:
         temp_trader = optionstrader.BybitOptionsTrader(
             api_key, api_secret, optionstrader.BASE_URL
