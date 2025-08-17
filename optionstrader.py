@@ -193,7 +193,7 @@ def get_tick_size(symbol, base_url=BASE_URL):
     lst = data.get("result", {}).get("list", [])
     if not lst:
         raise RuntimeError(f"No instrument data for symbol: {symbol}")
-    tick = float(lst[0].get("lotSizeFilter", {}).get("tickSize", 0))
+    tick = float(lst[0].get("priceFilter", {}).get("tickSize", 0))
     _tick_size_cache[symbol] = tick
     return tick
 
