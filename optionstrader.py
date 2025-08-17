@@ -845,9 +845,15 @@ def set_profit_targets(trader, multiplier=2):
         avg_price = float(pos.get("avgPrice", 0))
         if not symbol or not avg_price:
             continue
-        target = round_to_tick(avg_price * (multiplier + 1), symbol)
-        trader.place_order(symbol, "Sell", qty, target, "GTC", True)
-        print(f"Placed reduce-only Sell {qty} {symbol} @ {target}")
+        target = avg_price * (multiplier + 1)
+        try:
+            trader.place_order(symbol, "Sell", qty, target, "GTC", True)
+            print(f"Placed reduce-only Sell {qty} {symbol} @ {target}")
+        except ApiException as exc:
+            print(
+                f"Warning: failed to place reduce-only Sell {qty} {symbol} @ {target}: {exc}"
+            )
+            continue
 
 
 def interactive_menu(cfg_path):
