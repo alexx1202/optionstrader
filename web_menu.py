@@ -249,8 +249,12 @@ def reduce():
     if t is None:
         return _page("No trader available. Place a trade first.<br><a href='/'>Back</a>")
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        optionstrader.set_profit_targets(t)
+    try:
+        with contextlib.redirect_stdout(buf):
+            optionstrader.set_profit_targets(t)
+    except Exception as exc:  # pragma: no cover - just in case
+        app.logger.exception("Failed to set profit targets")
+        return _page(f"<pre>{exc}</pre><a href='/'>Back</a>")
     return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
 
 
