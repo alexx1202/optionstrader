@@ -53,6 +53,7 @@ fh.setFormatter(fmt)
 ch.setFormatter(fmt)
 logger.addHandler(fh)
 logger.addHandler(ch)
+logger.propagate = False
 logger.info("Starting optionstrader.py; logs to %s, output to %s", log_file, output_file)
 
 def print_and_write(lines):
