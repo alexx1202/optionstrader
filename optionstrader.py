@@ -26,6 +26,7 @@ import hashlib
 import requests
 from tabulate import tabulate
 import csv
+from decimal import Decimal, ROUND_HALF_UP
 
 # === Configuration ===
 API_KEY = os.getenv("BYBIT_API_KEY", "")
@@ -166,6 +167,43 @@ def fetch_option_instruments(base_coin="BTC", expiry=None, option_type=None, bas
         if not cursor:
             break
     return instruments
+
+
+_tick_size_cache = {}
+
+
+def get_tick_size(symbol, base_url=BASE_URL):
+    """Return the minimum price increment for ``symbol``."""
+    if symbol in _tick_size_cache:
+        return _tick_size_cache[symbol]
+    endpoint = "/v5/market/instruments-info"
+    params = {"category": "option", "symbol": symbol}
+    qs = urlencode(params)
+    url = f"{base_url}{endpoint}?{qs}"
+    logger.debug("Fetching tick size: %s", url)
+    resp = requests.get(url, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    logger.debug("Tick size response: %s", data)
+    if data.get("retCode") != 0:
+        raise RuntimeError(
+            f"API Error {data['retCode']}: {data.get('retMsg')}"
+        )
+    lst = data.get("result", {}).get("list", [])
+    if not lst:
+        raise RuntimeError(f"No instrument data for symbol: {symbol}")
+    tick = float(lst[0].get("lotSizeFilter", {}).get("tickSize", 0))
+    _tick_size_cache[symbol] = tick
+    return tick
+
+
+def round_to_tick(price, symbol):
+    """Round ``price`` to the nearest tick for ``symbol``."""
+    tick = get_tick_size(symbol)
+    price_dec = Decimal(str(price))
+    tick_dec = Decimal(str(tick))
+    rounded = (price_dec / tick_dec).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick_dec
+    return float(rounded)
 
 MIN_ORDER_QTY = 0.01
 
@@ -340,11 +378,13 @@ class BybitOptionsTrader:
 
     def place_order(self, symbol, side, qty, price=None, tif="GTC", is_exit=False):
         """Create an order and return Bybit's result structure."""
-        body = {"category":"option","symbol":symbol,"side":side,
-                "orderType":"Limit" if price else "Market",
-                "qty":str(qty),"timeInForce":tif,
-                "orderLinkId":uuid.uuid4().hex}
-        if price:
+        if price is not None:
+            price = round_to_tick(price, symbol)
+        body = {"category": "option", "symbol": symbol, "side": side,
+                "orderType": "Limit" if price is not None else "Market",
+                "qty": str(qty), "timeInForce": tif,
+                "orderLinkId": uuid.uuid4().hex}
+        if price is not None:
             body["price"] = str(price)
         if is_exit:
             body["reduceOnly"] = True
@@ -568,9 +608,9 @@ class BybitOptionsTrader:
             else:
                 logger.warning("No entry trade to infer price; skipping exit order")
                 return trades, trade_log
-        # Calculate target: e.g. 3x entry_price
-        target = entry_price * 3
-        exit_side = "Sell" if side.lower()=="buy" else "Buy"
+        # Calculate target: e.g. 3x entry_price and round to tick size
+        target = round_to_tick(entry_price * 3, symbol)
+        exit_side = "Sell" if side.lower() == "buy" else "Buy"
         self.place_order(symbol, exit_side, qty, target, tif, True)
         return trades, trade_log
 
@@ -805,7 +845,7 @@ def set_profit_targets(trader, multiplier=2):
         avg_price = float(pos.get("avgPrice", 0))
         if not symbol or not avg_price:
             continue
-        target = avg_price * (multiplier + 1)
+        target = round_to_tick(avg_price * (multiplier + 1), symbol)
         trader.place_order(symbol, "Sell", qty, target, "GTC", True)
         print(f"Placed reduce-only Sell {qty} {symbol} @ {target}")
 
