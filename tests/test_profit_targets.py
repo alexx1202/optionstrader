@@ -1,5 +1,6 @@
 import optionstrader
 
+
 class DummyTrader(optionstrader.BybitOptionsTrader):
     def __init__(self):
         pass
@@ -16,8 +17,9 @@ class DummyTrader(optionstrader.BybitOptionsTrader):
         }
 
 
-def test_set_profit_targets_places_order():
+def test_set_profit_targets_places_order(monkeypatch):
     trader = DummyTrader()
+    monkeypatch.setattr(optionstrader, "get_tick_size", lambda s: 0.1)
     optionstrader.set_profit_targets(trader)
     assert trader.called["side"] == "Sell"
     assert trader.called["price"] == 1.5
