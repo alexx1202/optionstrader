@@ -201,6 +201,8 @@ def get_tick_size(symbol, base_url=BASE_URL):
 def round_to_tick(price, symbol):
     """Round ``price`` to the nearest tick for ``symbol``."""
     tick = get_tick_size(symbol)
+    if not tick:
+        raise ValueError(f"Tick size for {symbol} is zero or missing")
     price_dec = Decimal(str(price))
     tick_dec = Decimal(str(tick))
     rounded = (price_dec / tick_dec).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick_dec
