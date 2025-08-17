@@ -254,7 +254,7 @@ def reduce():
             optionstrader.set_profit_targets(t)
     except Exception as exc:  # pragma: no cover - just in case
         app.logger.exception("Failed to set profit targets")
-        return _page(f"<pre>{exc}</pre><a href='/'>Back</a>")
+        return _page(f"<pre>Failed to set profit targets: {exc}</pre><a href='/'>Back</a>")
     return _page("<pre>" + buf.getvalue() + "</pre><a href='/'>Back</a>")
 
 
