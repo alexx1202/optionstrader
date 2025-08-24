@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 from copy import copy
 from datetime import datetime
+import json
 import math
 from pathlib import Path
 from typing import Optional
@@ -72,44 +73,68 @@ def _parse_trade_logs() -> dict[str, dict[str, float]]:
     (or ``*.txt``) that contain a ``Ticker Data`` section with market data and a
     ``Greek Exposures`` section with the per-position Greeks.  This function
     scans the current directory for such files and builds a dictionary keyed by
-    symbol with any numeric values found.  If no log files are present an empty
+    symbol with any numeric values found.  If no such log files exist, it also
+    looks for plain ``.txt`` files containing an ``Open Positions`` JSON block,
+    extracting Greeks from that structure.  If nothing is found an empty
     dictionary is returned.
     """
 
     logs: dict[str, dict[str, float]] = {}
-    for path in Path().glob("option_trade_log_*.*"):
-        symbol: Optional[str] = None
-        ticker: dict[str, float] = {}
-        greeks: dict[str, float] = {}
-        section: Optional[str] = None
-        for raw in path.read_text().splitlines():
-            line = raw.strip()
-            if not line:
+    log_files = list(Path().glob("option_trade_log_*.*"))
+    if log_files:
+        for path in log_files:
+            symbol: Optional[str] = None
+            ticker: dict[str, float] = {}
+            greeks: dict[str, float] = {}
+            section: Optional[str] = None
+            for raw in path.read_text().splitlines():
+                line = raw.strip()
+                if not line:
+                    continue
+                if line.startswith("Placing"):
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        symbol = parts[3]
+                elif line.startswith("symbol:"):
+                    symbol = line.split(":", 1)[1].strip()
+                elif line == "Ticker Data:":
+                    section = "ticker"
+                elif line == "Greek Exposures:":
+                    section = "greeks"
+                elif section == "ticker" and ":" in line:
+                    key, val = line.split(":", 1)
+                    value = _float(val.strip())
+                    if value is not None:
+                        ticker[key.strip()] = value
+                elif section == "greeks" and not line.lower().startswith("greek"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        greek = parts[0].lower()
+                        exposure = _float(parts[-1].rstrip("."))
+                        if exposure is not None:
+                            greeks[greek] = exposure
+            if symbol:
+                logs[symbol] = {**ticker, **greeks}
+    else:
+        for path in Path().glob("*.txt"):
+            text = path.read_text()
+            if "Open Positions" not in text:
                 continue
-            if line.startswith("Placing"):
-                parts = line.split()
-                if len(parts) >= 4:
-                    symbol = parts[3]
-            elif line.startswith("symbol:"):
-                symbol = line.split(":", 1)[1].strip()
-            elif line == "Ticker Data:":
-                section = "ticker"
-            elif line == "Greek Exposures:":
-                section = "greeks"
-            elif section == "ticker" and ":" in line:
-                key, val = line.split(":", 1)
-                value = _float(val.strip())
+            try:
+                json_str = text.split("Open Positions:", 1)[1]
+                json_str = json_str.split("Back", 1)[0].strip()
+                data = json.loads(json_str)
+            except Exception:
+                continue
+            symbol = data.get("symbol")
+            if not symbol:
+                continue
+            entry: dict[str, float] = {}
+            for key in ("delta", "gamma", "theta", "vega", "markPrice", "avgPrice"):
+                value = _float(data.get(key))
                 if value is not None:
-                    ticker[key.strip()] = value
-            elif section == "greeks" and not line.lower().startswith("greek"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    greek = parts[0].lower()
-                    exposure = _float(parts[-1].rstrip("."))
-                    if exposure is not None:
-                        greeks[greek] = exposure
-        if symbol:
-            logs[symbol] = {**ticker, **greeks}
+                    entry[key] = value
+            logs[symbol] = entry
     return logs
 
 def _parse_symbol(symbol: str) -> tuple[str, datetime, float, str]:
