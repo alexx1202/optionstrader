@@ -11,10 +11,41 @@ from __future__ import annotations
 import csv
 from copy import copy
 from datetime import datetime
+import math
 from pathlib import Path
 from typing import Optional
 
 from openpyxl import load_workbook
+
+
+def _norm_pdf(x: float) -> float:
+    """Probability density function of the standard normal distribution."""
+    return math.exp(-0.5 * x * x) / math.sqrt(2 * math.pi)
+
+
+def _norm_cdf(x: float) -> float:
+    """Cumulative distribution function for the standard normal distribution."""
+    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+
+
+def _greeks(option: str, s: float, k: float, t: float, sigma: float, qty: float) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """Return delta, gamma, theta and vega for an option position."""
+    if None in (s, k, t, sigma, qty) or t <= 0 or sigma <= 0:
+        return None, None, None, None
+    d1 = (math.log(s / k) + 0.5 * sigma ** 2 * t) / (sigma * math.sqrt(t))
+    d2 = d1 - sigma * math.sqrt(t)
+    pdf = _norm_pdf(d1)
+    if option == "CALL":
+        delta = _norm_cdf(d1)
+        theta = -(s * pdf * sigma) / (2 * math.sqrt(t))
+    else:
+        delta = _norm_cdf(d1) - 1
+        theta = -(s * pdf * sigma) / (2 * math.sqrt(t))
+    gamma = pdf / (s * sigma * math.sqrt(t))
+    vega = s * pdf * math.sqrt(t) / 100
+    # Convert theta to per-day and scale all Greeks by position size.
+    theta /= 365
+    return delta * qty, gamma * qty, theta * qty, vega * qty
 
 
 def _csv_path() -> Path:
@@ -33,6 +64,53 @@ def _float(value: str) -> Optional[float]:
     except (TypeError, ValueError):
         return None
 
+
+def _parse_trade_logs() -> dict[str, dict[str, float]]:
+    """Return a mapping of symbol to data parsed from trade log text files.
+
+    The trading script generates log files named ``option_trade_log_*.log``
+    (or ``*.txt``) that contain a ``Ticker Data`` section with market data and a
+    ``Greek Exposures`` section with the per-position Greeks.  This function
+    scans the current directory for such files and builds a dictionary keyed by
+    symbol with any numeric values found.  If no log files are present an empty
+    dictionary is returned.
+    """
+
+    logs: dict[str, dict[str, float]] = {}
+    for path in Path().glob("option_trade_log_*.*"):
+        symbol: Optional[str] = None
+        ticker: dict[str, float] = {}
+        greeks: dict[str, float] = {}
+        section: Optional[str] = None
+        for raw in path.read_text().splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("Placing"):
+                parts = line.split()
+                if len(parts) >= 4:
+                    symbol = parts[3]
+            elif line.startswith("symbol:"):
+                symbol = line.split(":", 1)[1].strip()
+            elif line == "Ticker Data:":
+                section = "ticker"
+            elif line == "Greek Exposures:":
+                section = "greeks"
+            elif section == "ticker" and ":" in line:
+                key, val = line.split(":", 1)
+                value = _float(val.strip())
+                if value is not None:
+                    ticker[key.strip()] = value
+            elif section == "greeks" and not line.lower().startswith("greek"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    greek = parts[0].lower()
+                    exposure = _float(parts[-1].rstrip("."))
+                    if exposure is not None:
+                        greeks[greek] = exposure
+        if symbol:
+            logs[symbol] = {**ticker, **greeks}
+    return logs
 
 def _parse_symbol(symbol: str) -> tuple[str, datetime, float, str]:
     """Return (pair, expiry, strike, option_type) extracted from ``symbol``."""
@@ -66,31 +144,71 @@ def main() -> None:
         last_row -= 1
 
     with csv_file.open(newline="") as f:
-        reader = csv.DictReader(f)
-        for trade in reader:
+        trades = list(csv.DictReader(f))
+
+    # Parse any trade log files for additional data such as Greeks.
+    log_data = _parse_trade_logs()
+
+    # Sort trades by time so entries appear before exits.
+    trades.sort(key=lambda t: datetime.strptime(t["localTime"], "%d/%m/%Y %H:%M"))
+
+    open_trades: dict[str, dict] = {}
+    for trade in trades:
+        symbol = trade["symbol"]
+        if symbol in open_trades:
+            entry = open_trades.pop(symbol)
+            exit_trade = trade
+
             last_row += 1
-            pair, expiry, strike, option_type = _parse_symbol(trade["symbol"])
-            underlying = _float(trade.get("underlyingPrice"))
-            entry_time = datetime.strptime(trade["localTime"], "%d/%m/%Y %H:%M")
+            pair, expiry, strike, option_type = _parse_symbol(symbol)
+            entry_time = datetime.strptime(entry["localTime"], "%d/%m/%Y %H:%M")
+            exit_time = datetime.strptime(exit_trade["localTime"], "%d/%m/%Y %H:%M")
+            qty = _float(entry.get("execQty"))
+            log = log_data.get(symbol, {})
+            underlying = _float(entry.get("underlyingPrice")) or log.get("underlyingPrice")
+            iv = (
+                _float(entry.get("tradeIv") or entry.get("markIv") or exit_trade.get("tradeIv") or exit_trade.get("markIv"))
+                or log.get("markIv")
+            )
+            t_expiry = (expiry - entry_time).total_seconds() / (365 * 24 * 60 * 60)
+            delta = log.get("delta")
+            gamma = log.get("gamma")
+            theta = log.get("theta")
+            vega = log.get("vega")
+            if any(g is None for g in (delta, gamma, theta, vega)):
+                delta, gamma, theta, vega = _greeks(option_type, underlying, strike, t_expiry, iv, qty or 0)
+
+            # Fees and result
+            fee = (_float(entry.get("netFee") or entry.get("execFee")) or 0) + (
+                _float(exit_trade.get("netFee") or exit_trade.get("execFee")) or 0
+            )
+            result = "WIN" if _float(exit_trade.get("balance")) > _float(entry.get("balance")) else "LOSS"
 
             # Basic values
             ws.cell(row=last_row, column=1, value=_money(option_type, strike, underlying))
             ws.cell(row=last_row, column=2, value=option_type)
             ws.cell(row=last_row, column=3, value=strike)
             ws.cell(row=last_row, column=4, value=pair)
-            ws.cell(row=last_row, column=5, value=trade.get("orderType"))
-            ws.cell(row=last_row, column=6, value=trade.get("side"))
-            ws.cell(row=last_row, column=8, value=_float(trade.get("execPrice")))
-            ws.cell(row=last_row, column=9, value=_float(trade.get("markPrice")))
-            ws.cell(row=last_row, column=10, value=_float(trade.get("execQty")))
+            ws.cell(row=last_row, column=5, value=(entry.get("orderType") or "").upper())
+            ws.cell(row=last_row, column=6, value=(entry.get("side") or "").upper())
+            ws.cell(row=last_row, column=8, value=_float(entry.get("execPrice")))
+            ws.cell(row=last_row, column=9, value=_float(exit_trade.get("execPrice")))
+            ws.cell(row=last_row, column=10, value=qty)
+            ws.cell(row=last_row, column=11, value=delta)
+            ws.cell(row=last_row, column=12, value=gamma)
+            ws.cell(row=last_row, column=13, value=theta)
+            ws.cell(row=last_row, column=14, value=vega)
             ws.cell(row=last_row, column=15, value=entry_time)
-            ws.cell(row=last_row, column=16, value=entry_time)
+            ws.cell(row=last_row, column=16, value=exit_time)
             ws.cell(row=last_row, column=18, value=expiry)
-            ws.cell(row=last_row, column=20, value=_float(trade.get("netFee") or trade.get("execFee")))
-            ws.cell(row=last_row, column=22, value=_float(trade.get("tradeIv") or trade.get("markIv")))
-            ws.cell(row=last_row, column=23, value=_float(trade.get("indexPrice")))
-            ws.cell(row=last_row, column=24, value=_float(trade.get("markPrice")))
-            ws.cell(row=last_row, column=25, value=_float(trade.get("underlyingPrice")))
+            ws.cell(row=last_row, column=20, value=fee)
+            ws.cell(row=last_row, column=22, value=iv)
+            entry_index = _float(entry.get("indexPrice")) or log.get("indexPrice")
+            exit_index = _float(exit_trade.get("indexPrice")) or log.get("indexPrice")
+            ws.cell(row=last_row, column=23, value=entry_index)
+            ws.cell(row=last_row, column=24, value=exit_index)
+            ws.cell(row=last_row, column=25, value=None)
+            ws.cell(row=last_row, column=30, value=result)
 
             # Formulas
             ws.cell(row=last_row, column=7, value=f'=IF(F{last_row}="BUY", (H{last_row}*J{last_row})/-1,(H{last_row}*J{last_row}))')
@@ -109,6 +227,7 @@ def main() -> None:
                 cell.border = copy(tmpl.border)
                 cell.alignment = copy(tmpl.alignment)
                 cell.number_format = tmpl.number_format
+        # Ignore any unmatched trades.
 
     wb.save("OPTIONS DEMO.xlsx")
 
